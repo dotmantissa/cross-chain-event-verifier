@@ -39,6 +39,23 @@ StudioNet reads use `scripts/transport.py` for raw calldata. During validation o
 
 Polling uses 10-second intervals with bounded retries. Throttle heavy live runs; a failed external request or hosted limit is not evidence that the external transaction is absent. Hosted finalization can take minutes. Preserve the transaction ID and inspect it rather than blindly resubmitting.
 
+The typed helper and integration fixtures retry transport failures on read-only RPC methods up to three times. Transaction submissions and contract execution errors are never retried automatically. Submitted integration hashes are journaled before polling, including when receipt retrieval is interrupted.
+
+### Hosted finalized cross-contract read limitation
+
+On 2026-10-10 the default gate's first cross-contract assertion normalization finalized with execution `ERROR` and a VM `timeout`. The [Studio host's storage handler](https://github.com/genlayerlabs/genlayer-studio/blob/main/backend/node/genvm/base.py) explicitly rejects `StorageType.LATEST_FINAL`. This is consistent with the failure; the exact hosted backend revision is not exposed. The same gate source successfully performed cross-contract normalization and settlement in a separate deployment with `allow_non_final=True`.
+
+To reproduce that explicit diagnostic, use a separate deployment and evidence checkpoint:
+
+```bash
+CCEV_GATE_NONFINAL_DIAGNOSTIC=1 \
+CCEV_DEPLOYMENTS_FILE=deployments/studionet.nonfinal.pending.json \
+CCEV_EVIDENCE_FILE=deployments/studionet.nonfinal.evidence.pending.json \
+gltest tests/integration/test_release_gate.py -v -s --network studionet -x
+```
+
+The diagnostic changes the deployed test gate's owner setting after deployment. It does not validate finalized cross-contract storage selection. The standard suite never enables it automatically. Validate the default gate on a host supporting finalized inter-contract reads before using it for value-sensitive authorization. A reused gate preserves consumed transactions; the replay test checks the existing settled condition and attempts a new replay rather than clearing that history.
+
 ## Deploy or interact independently
 
 The typed helper avoids the installed CLI's auto-coercion of numeric-looking chain IDs, hashes and JSON assertion strings:

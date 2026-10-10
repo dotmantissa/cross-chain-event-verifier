@@ -34,10 +34,12 @@ Direct tests use in-memory VM storage and mocked source/LLM responses. The equiv
 ```bash
 cp .env.example .env
 # Set CCEV_DEPLOYER_KEY in .env using your own deployer account.
-gltest tests/integration -v -s --network studionet
+gltest tests/integration/test_live_verification.py -v -s --network studionet
 ```
 
 StudioNet is gasless. The live suite deploys contracts, sends transactions, queries public Ethereum sources, and runs LLM adjudication. Run it separately from the direct suite. Deployments are checkpointed before polling in `deployments/studionet.pending.json`; matching source and constructor arguments reuse that deployment on the next run. Use `CCEV_DEPLOYMENTS_FILE` to choose a different checkpoint path.
+
+The full suite also includes the release gate. Its default finalized cross-contract reads encountered a hosted VM timeout on StudioNet; Studio's host source currently rejects `StorageType.LATEST_FINAL` storage reads. An explicit non-final diagnostic deployment exercises consumer behavior separately. See [operations](docs/OPERATIONS.md) for the read-policy distinction and commands. The gate keeps finalized reads as its default.
 
 ## Prove a transfer
 

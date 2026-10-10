@@ -101,16 +101,16 @@ def test_strict_policy_applies_to_event_conditions(release_gate, verifier, condi
         for source in ethereum["sources"]]
     transact(verifier.register_chain(args=[chain, "Threshold regression", "evm", 1,
         1, 1000000000, 2, json.dumps(sources)]))
-    assertion = transfer_assertion()
-    transact(verifier.prove_event(args=[chain, TX, assertion]))
-    assert verifier.is_event_proven(args=[chain, TX, assertion]).call() is True
-    assert verifier.is_verified_strict(args=[chain, TX]).call() is False
-    beneficiary = release_gate.get_config().call()["owner"]
-    transact(release_gate.create_condition(args=[condition_id, chain, assertion,
-        "Strict confirmation regression", CalldataAddress(beneficiary), 0]))
-    assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is False
-    rejected(release_gate.settle(args=[condition_id, TX]), "not strictly confirmed")
     try:
+        assertion = transfer_assertion()
+        transact(verifier.prove_event(args=[chain, TX, assertion]))
+        assert verifier.is_event_proven(args=[chain, TX, assertion]).call() is True
+        assert verifier.is_verified_strict(args=[chain, TX]).call() is False
+        beneficiary = release_gate.get_config().call()["owner"]
+        transact(release_gate.create_condition(args=[condition_id, chain, assertion,
+            "Strict confirmation regression", CalldataAddress(beneficiary), 0]))
+        assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is False
+        rejected(release_gate.settle(args=[condition_id, TX]), "not strictly confirmed")
         transact(release_gate.set_require_strict(args=[False]))
         assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is True
         transact(release_gate.settle(args=[condition_id, TX]))

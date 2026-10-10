@@ -58,3 +58,39 @@ def test_typed_json_arguments_keep_chain_ids_and_hashes_as_strings():
 def test_typed_json_arguments_preserve_unrelated_dicts():
     from scripts.ccev import convert_arguments
     assert convert_arguments({"address": "0x" + "11" * 20}) == {"address": "0x" + "11" * 20}
+
+
+@pytest.mark.parametrize('method,retries', [('eth_getTransactionByHash', 3), ('eth_sendRawTransaction', 1)])
+def test_transport_failures_retry_only_reads(monkeypatch, method, retries):
+    import requests
+    from scripts import transport
+    monkeypatch.setattr(transport.time, 'sleep', lambda _: None)
+    attempts = []
+
+    def request(**kwargs):
+        attempts.append(kwargs)
+        try:
+            raise requests.exceptions.ConnectionError('temporary DNS failure')
+        except requests.exceptions.ConnectionError as cause:
+            raise GenLayerError('transport failed') from cause
+
+    client = transport.install_rpc_read_retries(SimpleNamespace(
+        provider=SimpleNamespace(make_request=request)))
+    with pytest.raises(GenLayerError):
+        client.provider.make_request(method=method, params=['unchanged'])
+    assert len(attempts) == retries
+    assert all(call == {'method': method, 'params': ['unchanged']} for call in attempts)
+
+
+def test_rpc_execution_errors_are_never_retried():
+    from scripts.transport import install_rpc_read_retries
+    attempts = []
+
+    def request(**kwargs):
+        attempts.append(kwargs)
+        raise GenLayerError('contract execution failed')
+
+    client = install_rpc_read_retries(SimpleNamespace(provider=SimpleNamespace(make_request=request)))
+    with pytest.raises(GenLayerError, match='execution failed'):
+        client.provider.make_request(method='gen_call', params=[])
+    assert len(attempts) == 1

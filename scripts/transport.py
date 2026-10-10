@@ -6,12 +6,42 @@ encoding is valid. Use raw calldata on that host; writes keep SDK signing and
 transaction serialization unchanged.
 """
 from types import MethodType
+import time
 from urllib.parse import urlparse
+
+import requests
 
 from genlayer_py.abi import calldata
 from genlayer_py.contracts.utils import make_calldata_object
 from genlayer_py.exceptions import GenLayerError
 from genlayer_py.types import TransactionHashVariant
+
+
+READ_RPC_METHODS = frozenset({"eth_chainId", "eth_getBalance", "eth_estimateGas",
+    "eth_getTransactionCount", "eth_getTransactionByHash", "eth_getTransactionReceipt",
+    "eth_blockNumber", "gen_call", "gen_getContractCode", "gen_getContractSchema"})
+
+
+def install_rpc_read_retries(client):
+    """Retry transport failures on reads; never resubmit transactions."""
+    provider = client.provider
+    if getattr(provider, "_ccev_read_retries_installed", False):
+        return client
+    original = provider.make_request
+
+    def request(method, params):
+        for attempt in range(3):
+            try:
+                return original(method=method, params=params)
+            except GenLayerError as error:
+                if (method not in READ_RPC_METHODS or attempt == 2
+                    or not isinstance(error.__cause__, requests.exceptions.RequestException)):
+                    raise
+                time.sleep(2 ** attempt)
+
+    provider.make_request = request
+    provider._ccev_read_retries_installed = True
+    return client
 
 
 def _read_contract(

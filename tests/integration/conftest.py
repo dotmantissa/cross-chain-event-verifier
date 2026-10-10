@@ -26,7 +26,7 @@ from gltest import get_contract_factory
 from gltest.clients import get_gl_client
 from gltest.utils import extract_contract_address
 from gltest_cli.config.general import get_general_config
-from scripts.transport import install_studionet_read_compat
+from scripts.transport import install_rpc_read_retries, install_studionet_read_compat
 from gltest.assertions import tx_execution_succeeded
 
 # Ethereum mainnet, block 16777216. A USDT transfer, finalised years ago, so
@@ -119,7 +119,7 @@ def deploy_checkpointed(name, args):
     as a deployed contract.
     """
     factory = get_contract_factory(name)
-    client = install_studionet_read_compat(get_gl_client())
+    client = install_rpc_read_retries(install_studionet_read_compat(get_gl_client()))
     journal_receipts(client)
     checkpoint = Path(os.getenv("CCEV_DEPLOYMENTS_FILE", "deployments/studionet.pending.json"))
     fingerprint = hashlib.sha256(factory.contract_code.encode()).hexdigest()
@@ -199,10 +199,14 @@ def proven_fixture_event(verifier):
 def release_gate(verifier):
     """A release gate pointed at the deployed verifier."""
     gate = deploy_checkpointed("CrossChainReleaseGate", [str(verifier.address), True])
+    config = gate.get_config().call()
     if os.getenv("CCEV_GATE_NONFINAL_DIAGNOSTIC") == "1":
         # Explicit diagnostic only: some Studio hosts reject LATEST_FINAL
         # inter-contract storage reads. The contract's default stays final.
-        receipt = gate.set_allow_non_final(args=[True]).transact(
-            wait_transaction_status=TransactionStatus.FINALIZED, **LONG_WAIT)
-        assert tx_execution_succeeded(receipt), receipt
+        if not config["allow_non_final"]:
+            receipt = gate.set_allow_non_final(args=[True]).transact(
+                wait_transaction_status=TransactionStatus.FINALIZED, **LONG_WAIT)
+            assert tx_execution_succeeded(receipt), receipt
+    elif config["allow_non_final"]:
+        raise ValueError("Checkpoint gate enables non-final reads; use a separate finalized-policy checkpoint")
     return gate

@@ -17,9 +17,9 @@ from gltest.assertions import tx_execution_succeeded
 from gltest.utils import extract_contract_address
 
 if __package__:
-    from .transport import install_studionet_read_compat
+    from .transport import install_rpc_read_retries, install_studionet_read_compat
 else:
-    from transport import install_studionet_read_compat
+    from transport import install_rpc_read_retries, install_studionet_read_compat
 
 
 CHAINS = {"studionet": studionet, "localnet": localnet, "testnet-bradbury": testnet_bradbury}
@@ -65,7 +65,8 @@ def main():
         parser.error("Set CCEV_DEPLOYER_KEY in .env or the environment")
     # The read RPC requires a sender address even though it does not sign.
     account = create_account(key) if key else create_account()
-    client = install_studionet_read_compat(create_client(chain=CHAINS[options.network], account=account))
+    client = install_rpc_read_retries(install_studionet_read_compat(
+        create_client(chain=CHAINS[options.network], account=account)))
     if options.command == "call":
         variant = TransactionHashVariant.LATEST_FINAL if options.state == "final" else TransactionHashVariant.LATEST_NONFINAL
         result = client.read_contract(address=options.address, function_name=options.method,
