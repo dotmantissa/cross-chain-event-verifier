@@ -20,6 +20,7 @@ Python 3.14 is the environment validated for this project. Install the pinned to
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
+python scripts/prepare_direct_sdk.py
 
 genvm-lint check contracts/cross_chain_event_verifier.py
 genvm-lint typecheck contracts/cross_chain_event_verifier.py

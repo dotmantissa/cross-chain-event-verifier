@@ -15,10 +15,13 @@ genvm-lint check contracts/cross_chain_event_verifier.py
 genvm-lint typecheck contracts/cross_chain_event_verifier.py
 genvm-lint check contracts/examples/cross_chain_release_gate.py
 genvm-lint typecheck contracts/examples/cross_chain_release_gate.py
+python scripts/prepare_direct_sdk.py
 pytest -p no:gltest tests/direct -q
 ```
 
 The direct-test command disables the network configuration plugin (`gltest`) while retaining `gltest_direct`. This avoids loading live account settings or clearing integration artifacts. CI runs these checks without account credentials. Direct tests cover normalization, decoding, assertions, digests, aggregation, saved validator callbacks, registry governance, access control, cache expiry and reorg invalidation. They do not replace real GenVM execution. The SDK allows one contract class in a direct-mode process; the release gate's real cross-contract behavior is tested on a network.
+
+`prepare_direct_sdk.py` prepares GenVM release `v0.2.16`, which contains the contract's pinned runner and its exact SDK dependencies. On a fresh machine, `genlayer-test` 0.29.2 otherwise asks the latest release for an asset filename that newer releases no longer provide. The bootstrap uses the tool's standard downloader and extractor; contract runner hashes remain unchanged.
 
 ## Live validation
 

@@ -2,6 +2,7 @@
 import base64
 import binascii
 import json
+import os
 import uuid
 import pytest
 from genlayer_py.types import CalldataAddress, TransactionStatus
@@ -42,26 +43,31 @@ def create(gate, identifier, assertion=""):
         "Live integration condition", CalldataAddress(beneficiary), 0]))
 
 
-def test_gate_deploys_with_finalized_strict_reads(release_gate):
+def test_gate_configuration_matches_requested_read_policy(release_gate):
     config = release_gate.get_config().call()
     assert config["require_strict"] is True
-    assert config["allow_non_final"] is False
+    assert config["allow_non_final"] is (os.getenv("CCEV_GATE_NONFINAL_DIAGNOSTIC") == "1")
 
 
 def test_event_condition_settles_and_blocks_replay(release_gate, proven_fixture_event, condition_id):
-    create(release_gate, condition_id, proven_fixture_event)
-    record = release_gate.get_condition(args=[condition_id]).call()
-    assert record["assertion"]
-    assert record["open"] is True
-    assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is True
-    transact(release_gate.settle(args=[condition_id, TX]))
+    second = condition_id + "-replay"
+    previous = release_gate.settled_condition_for(args=[ETH, TX]).call()
+    if previous:
+        # Checkpoint reuse preserves the consumer's permanent replay history.
+        condition_id = previous
+    else:
+        create(release_gate, condition_id, proven_fixture_event)
+        record = release_gate.get_condition(args=[condition_id]).call()
+        assert record["assertion"]
+        assert record["open"] is True
+        assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is True
+        transact(release_gate.settle(args=[condition_id, TX]))
     settled = release_gate.get_condition(args=[condition_id]).call()
     assert settled["settled"] is True
     assert settled["settled_tx"] == TX
     assert release_gate.is_settled(args=[condition_id]).call() is True
     assert release_gate.settled_condition_for(args=[ETH, TX.upper()]).call() == condition_id
     rejected(release_gate.settle(args=[condition_id, TX]), "already settled")
-    second = condition_id + "-replay"
     create(release_gate, second, proven_fixture_event)
     assert release_gate.check_readiness(args=[second, TX.upper()]).call()["ready"] is False
     rejected(release_gate.settle(args=[second, TX.upper()]), "transaction already settled")

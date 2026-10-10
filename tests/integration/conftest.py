@@ -198,4 +198,11 @@ def proven_fixture_event(verifier):
 @pytest.fixture(scope="session")
 def release_gate(verifier):
     """A release gate pointed at the deployed verifier."""
-    return deploy_checkpointed("CrossChainReleaseGate", [str(verifier.address), True])
+    gate = deploy_checkpointed("CrossChainReleaseGate", [str(verifier.address), True])
+    if os.getenv("CCEV_GATE_NONFINAL_DIAGNOSTIC") == "1":
+        # Explicit diagnostic only: some Studio hosts reject LATEST_FINAL
+        # inter-contract storage reads. The contract's default stays final.
+        receipt = gate.set_allow_non_final(args=[True]).transact(
+            wait_transaction_status=TransactionStatus.FINALIZED, **LONG_WAIT)
+        assert tx_execution_succeeded(receipt), receipt
+    return gate
