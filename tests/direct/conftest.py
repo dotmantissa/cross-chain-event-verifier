@@ -364,6 +364,21 @@ def mod(verifier):
     return sys.modules[MODULE_NAME]
 
 
+def addr_hex(value) -> str:
+    """Render any address form the harness hands back as lowercase hex.
+
+    ``create_address`` returns a genlayer ``Address`` once the SDK is loaded and
+    raw bytes before that, and which one a test sees depends on whether the
+    fixture resolved before or after the first deploy. Normalising here keeps
+    tests independent of that ordering.
+    """
+    if hasattr(value, "as_hex"):
+        return value.as_hex.lower()
+    if isinstance(value, (bytes, bytearray)):
+        return "0x" + bytes(value).hex()
+    return str(value).lower()
+
+
 @pytest.fixture
 def at_time(direct_vm):
     """Set the deterministic clock the contract reads.

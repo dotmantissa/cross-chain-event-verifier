@@ -1515,12 +1515,17 @@ def parse_adjudication(raw: typing.Any) -> dict:
     if confidence_raw is None:
         confidence_raw = raw.get("certainty", 50)
     try:
-        confidence = int(round(float(str(confidence_raw).strip().rstrip("%"))))
+        numeric = float(str(confidence_raw).strip().rstrip("%"))
     except (ValueError, TypeError):
-        confidence = 50
-    if 0 < confidence <= 1:
-        confidence = confidence * 100
-    confidence = max(0, min(100, confidence))
+        numeric = 50.0
+    # Some models answer with a 0..1 fraction despite being asked for 0..100.
+    # Only values strictly below 1 are read that way: an exact 1 is far more
+    # likely to mean one percent, and reading it as certainty would inflate a
+    # low-confidence answer to the maximum. Scaling before rounding matters,
+    # since rounding first would turn 0.9 into 1 and then into 100.
+    if 0.0 < numeric < 1.0:
+        numeric = numeric * 100.0
+    confidence = max(0, min(100, int(round(numeric))))
 
     reasoning = raw.get("reasoning")
     if reasoning is None:
