@@ -43,7 +43,7 @@ The typed helper and integration fixtures retry transport failures on read-only 
 
 ### Hosted finalized cross-contract read limitation
 
-On 2026-10-10 the default gate's first cross-contract assertion normalization finalized with execution `ERROR` and a VM `timeout`. The [Studio host's storage handler](https://github.com/genlayerlabs/genlayer-studio/blob/main/backend/node/genvm/base.py) explicitly rejects `StorageType.LATEST_FINAL`. This is consistent with the failure; the exact hosted backend revision is not exposed. The same gate source successfully performed cross-contract normalization and settlement in a separate deployment with `allow_non_final=True`.
+On 2026-10-10 the default gate's first cross-contract assertion normalization finalized with execution `ERROR` and a VM `timeout`. The [Studio host's storage handler](https://github.com/genlayerlabs/genlayer-studio/blob/d7272a9499f119a8f0a18ad361837054e4930f75/backend/node/genvm/base.py#L637) explicitly rejects `StorageType.LATEST_FINAL`. This is consistent with the failure; the exact hosted backend revision is not exposed. The same gate source successfully performed cross-contract normalization and settlement in a separate deployment with `allow_non_final=True`.
 
 To reproduce that explicit diagnostic, use a separate deployment and evidence checkpoint:
 

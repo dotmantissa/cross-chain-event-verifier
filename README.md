@@ -41,6 +41,16 @@ StudioNet is gasless. The live suite deploys contracts, sends transactions, quer
 
 The full suite also includes the release gate. Its default finalized cross-contract reads encountered a hosted VM timeout on StudioNet; Studio's host source currently rejects `StorageType.LATEST_FINAL` storage reads. An explicit non-final diagnostic deployment exercises consumer behavior separately. See [operations](docs/OPERATIONS.md) for the read-policy distinction and commands. The gate keeps finalized reads as its default.
 
+## Validated deployments
+
+StudioNet validation on 2026-10-10 passed 544 direct tests, all 24 live verifier cases and six consumer cases using an explicitly non-final diagnostic gate. [Deployment manifest](deployments/studionet.json) records source hashes and finalized execution evidence; [validation details](docs/VALIDATION.md) distinguish the supported paths and remaining finalized-read limitation.
+
+| Contract | StudioNet address | Validation |
+| --- | --- | --- |
+| Verifier | `0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38` | Ethereum verification, event proofs and claims |
+| Default release gate | `0x0E3143A1Db3373cf5E45F1c417249587506255Eb` | Deployment/configuration checked; finalized cross-contract reads blocked |
+| Diagnostic release gate | `0x41aCD88c1226982d53FaF35DCF81f82BAa169a1C` | Consumer behavior checked with non-final reads explicitly enabled |
+
 ## Prove a transfer
 
 The assertion uses raw base units, exact token and party addresses, an event signature, and a 32-byte ABI data word:
@@ -86,5 +96,6 @@ These are application confirmation policies. The EVM `final` label means the con
 - [Consumer integration, assertion format and release gate](docs/INTEGRATION.md)
 - [API reference](docs/API.md)
 - [Testing, deployment and recovery](docs/OPERATIONS.md)
+- [Validation results and deployment evidence](docs/VALIDATION.md)
 
 The contracts pin a concrete GenVM runner version. They are immutable deployments; changing source requires deployment of a new verifier/gate and an explicit consumer migration. Hosted-source availability and GenLayer appeals/finality remain part of the integration contract.
