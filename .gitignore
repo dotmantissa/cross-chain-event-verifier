@@ -18,3 +18,5 @@ __pycache__/
 
 # Interrupted/live validation checkpoints (published manifests are separate).
 /deployments/*.pending.json
+
+/deployments/*.tmp

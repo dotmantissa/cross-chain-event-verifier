@@ -25,7 +25,7 @@ genvm-lint check contracts/cross_chain_event_verifier.py
 genvm-lint typecheck contracts/cross_chain_event_verifier.py
 genvm-lint check contracts/examples/cross_chain_release_gate.py
 genvm-lint typecheck contracts/examples/cross_chain_release_gate.py
-pytest tests/direct -q
+pytest -p no:gltest tests/direct -q
 ```
 
 Direct tests use in-memory VM storage and mocked source/LLM responses. The equivalence tests additionally run the saved validator callback against independent observations. Real VM execution and cross-contract reads are covered by the integration suite:

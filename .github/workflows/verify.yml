@@ -20,4 +20,4 @@ jobs:
       - run: genvm-lint typecheck contracts/cross_chain_event_verifier.py
       - run: genvm-lint check contracts/examples/cross_chain_release_gate.py
       - run: genvm-lint typecheck contracts/examples/cross_chain_release_gate.py
-      - run: pytest tests/direct -q
+      - run: pytest -p no:gltest tests/direct -q

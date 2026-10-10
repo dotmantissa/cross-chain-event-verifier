@@ -236,7 +236,7 @@ def test_a_transaction_that_never_existed_is_reported_absent(verifier):
     assert record["status"] == "absent"
     assert record["confirmed"] is False
     assert record["agreement"] == "strong"
-    assert record["sources_absent"] >= 2
+    assert sum(report["outcome"] == "absent" for report in record["source_reports"]) >= 2
     assert verifier.is_verified(args=[ETH, ABSENT_TX]).call() is False
 
 

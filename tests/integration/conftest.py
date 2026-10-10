@@ -80,14 +80,24 @@ def journal_receipts(client):
 
     @functools.wraps(original)
     def wait(*args, **kwargs):
+        tx_hash = str(kwargs.get("transaction_hash", args[0] if args else ""))
+        path = Path(os.getenv("CCEV_EVIDENCE_FILE", "deployments/studionet.evidence.pending.json"))
+        records = json.loads(path.read_text()) if path.exists() else {}
+        if tx_hash and tx_hash not in records:
+            records[tx_hash] = {"transaction_hash": tx_hash, "status": "submitted",
+                "execution_result": "", "votes": {}}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(records, indent=2) + "\n")
+            temporary.replace(path)
+        print(f"Waiting for transaction {tx_hash}", flush=True)
         receipt = original(*args, **kwargs)
-        tx_hash = str(kwargs.get("transaction_hash", args[0] if args else receipt.get("hash", "")))
+        tx_hash = tx_hash or str(receipt.get("hash", ""))
         consensus = receipt.get("consensus_data", {})
         leaders = consensus.get("leader_receipt", [])
         execution = leaders[0].get("execution_result", "") if leaders else ""
         evidence = {"transaction_hash": tx_hash, "status": str(receipt.get("status_name", receipt.get("status", ""))),
             "execution_result": execution, "votes": consensus.get("votes", {})}
-        path = Path(os.getenv("CCEV_EVIDENCE_FILE", "deployments/studionet.evidence.pending.json"))
         records = json.loads(path.read_text()) if path.exists() else {}
         records[tx_hash] = evidence
         path.parent.mkdir(parents=True, exist_ok=True)

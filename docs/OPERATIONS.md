@@ -15,10 +15,10 @@ genvm-lint check contracts/cross_chain_event_verifier.py
 genvm-lint typecheck contracts/cross_chain_event_verifier.py
 genvm-lint check contracts/examples/cross_chain_release_gate.py
 genvm-lint typecheck contracts/examples/cross_chain_release_gate.py
-pytest tests/direct -q
+pytest -p no:gltest tests/direct -q
 ```
 
-CI runs these checks without account credentials. Direct tests cover normalization, decoding, assertions, digests, aggregation, saved validator callbacks, registry governance, access control, cache expiry and reorg invalidation. They do not replace real GenVM execution. The SDK allows one contract class in a direct-mode process; the release gate's real cross-contract behavior is tested on a network.
+The direct-test command disables the network configuration plugin (`gltest`) while retaining `gltest_direct`. This avoids loading live account settings or clearing integration artifacts. CI runs these checks without account credentials. Direct tests cover normalization, decoding, assertions, digests, aggregation, saved validator callbacks, registry governance, access control, cache expiry and reorg invalidation. They do not replace real GenVM execution. The SDK allows one contract class in a direct-mode process; the release gate's real cross-contract behavior is tested on a network.
 
 ## Live validation
 
