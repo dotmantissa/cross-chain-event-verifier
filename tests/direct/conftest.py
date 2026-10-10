@@ -15,7 +15,7 @@ import sys
 import pytest
 
 CONTRACT = "contracts/cross_chain_event_verifier.py"
-CONSUMER = "contracts/examples/escrow_release_consumer.py"
+CONSUMER = "contracts/examples/cross_chain_release_gate.py"
 MODULE_NAME = "_contract_cross_chain_event_verifier"
 
 # A synthetic chain used by most tests so sources are fully controllable.
@@ -38,9 +38,11 @@ TEST_SOURCES = [
 TX_HASH = "0x2bb8f36504a329b8d8eb4031a895aa952e1007c24843a531d3bf29093872f86a"
 SENDER = "0x23f4569002a5a07f0ecf688142eeb6bcd883eef8"
 USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
-RECIPIENT = "0x5041ed759dd4afc3a72b8192c143f72f4724081a"
+RECIPIENT = "0x09b6b873f9a7e0f4dcb2f4aadb6be39912aa1b30"
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 BLOCK = 16777216
+TX_INDEX = 24
+NONCE = 369105
 AMOUNT = 100000000  # 100 USDT, 6 decimals
 
 OTHER_TX = "0xb0b31990a5b94de6563f0ed84004a4eadb89a44a37a3ddc19f693235782b8aed"
@@ -100,7 +102,7 @@ def rpc_transaction(
     to: str = USDT,
     value: int = 0,
     block: int = BLOCK,
-    nonce: int = 79,
+    nonce: int = NONCE,
     input_data: str = "0xa9059cbb",
 ) -> dict:
     """An eth_getTransactionByHash result. ``block=None`` means still pending."""
@@ -113,7 +115,7 @@ def rpc_transaction(
         "input": input_data,
         "blockNumber": hex(block) if block is not None else None,
         "blockHash": "0x" + "11" * 32 if block is not None else None,
-        "transactionIndex": "0x2a" if block is not None else None,
+        "transactionIndex": hex(TX_INDEX) if block is not None else None,
         "gas": "0x15f90",
         "gasPrice": "0x4a817c800",
         "type": "0x2",
@@ -136,7 +138,7 @@ def rpc_receipt(
         "to": to,
         "blockNumber": hex(block),
         "blockHash": "0x" + "11" * 32,
-        "transactionIndex": "0x2a",
+        "transactionIndex": hex(TX_INDEX),
         "status": hex(status),
         "gasUsed": "0xfd50",
         "cumulativeGasUsed": "0x1b2c3d",
@@ -178,7 +180,7 @@ def blockscout_transaction(
     confirmations: int = 64,
     result: str = "success",
     status: str = "ok",
-    nonce: int = 79,
+    nonce: int = NONCE,
     raw_input: str = "0xa9059cbb",
 ) -> str:
     """A Blockscout v2 /transactions/{hash} payload.
@@ -195,7 +197,7 @@ def blockscout_transaction(
             "nonce": nonce,
             "raw_input": raw_input,
             "block_number": block,
-            "position": 42,
+            "position": TX_INDEX,
             "confirmations": confirmations,
             "result": result,
             "status": status,
@@ -278,7 +280,7 @@ def solana_transaction(
                 "accountKeys": keys,
                 "instructions": [{"programIdIndex": 2, "accounts": [0, 1], "data": "AQ=="}],
             },
-            "signatures": ["sig"],
+            "signatures": ["sig" + "1" * 40],
         },
     }
 

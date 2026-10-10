@@ -11,6 +11,10 @@ __pycache__/
 *.py[cod]
 
 # Editors and OS
+
 .vscode/
 .idea/
 .DS_Store
+
+# Interrupted/live validation checkpoints (published manifests are separate).
+/deployments/*.pending.json

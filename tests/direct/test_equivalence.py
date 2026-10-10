@@ -333,13 +333,12 @@ def test_differing_assertions_fail(mod):
     assert mod.results_agree(leader, validator, plan()) is False
 
 
-def test_match_count_differences_are_tolerated(mod):
-    """Only the satisfied/not-satisfied outcome is consensus relevant. How many
-    logs matched is informational."""
+def test_match_count_differences_are_rejected(mod):
+    """Match counts are derived from agreed logs and are stored on-chain."""
     spec = json.dumps({"address": USDT}, sort_keys=True, separators=(",", ":"))
     leader = result(assertion=spec, assertion_satisfied=True, assertion_log_matched=1)
     validator = result(assertion=spec, assertion_satisfied=True, assertion_log_matched=2)
-    assert mod.results_agree(leader, validator, plan()) is True
+    assert mod.results_agree(leader, validator, plan()) is False
 
 
 # ---------------------------------------------------------------------------

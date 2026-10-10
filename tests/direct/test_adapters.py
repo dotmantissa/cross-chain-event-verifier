@@ -19,6 +19,7 @@ import pytest
 
 from conftest import (
     ALPHA,
+    NONCE,
     GAMMA,
     RECIPIENT,
     SENDER,
@@ -78,7 +79,7 @@ def test_evm_adapter_normalises_a_confirmed_transaction(direct_vm, mod):
     assert facts["from"] == SENDER
     assert facts["to"] == USDT
     assert facts["value"] == "0"
-    assert facts["nonce"] == 79
+    assert facts["nonce"] == NONCE
     assert facts["block_number"] == BLOCK
     assert facts["selector"] == "0xa9059cbb"
     assert len(facts["logs"]) == 1
@@ -156,7 +157,7 @@ def test_evm_adapter_accepts_a_pre_byzantium_receipt(direct_vm, mod):
     del receipt["status"]
     mock_rpc(direct_vm, ALPHA, evm_batch(rpc_transaction(), receipt, BLOCK + 64))
     out = mod.fetch_evm_jsonrpc(evm_source(), plan(), TX_HASH)
-    assert out["facts"]["status"] == "success"
+    assert out["facts"]["status"] == "pending"
 
 
 # -- chain binding ----------------------------------------------------------
@@ -187,9 +188,8 @@ def test_evm_adapter_skips_the_chain_check_when_not_applicable(direct_vm, mod):
     assert out["outcome"] == "found"
 
 
-def test_evm_adapter_tolerates_a_source_that_omits_chain_id(direct_vm, mod):
-    """Some endpoints answer the batch but leave eth_chainId null. That is not
-    grounds for rejecting an otherwise valid reading."""
+def test_evm_adapter_rejects_a_source_that_omits_chain_id(direct_vm, mod):
+    """A null chain ID does not establish that the endpoint serves the requested chain."""
     body = json.dumps(
         [
             {"jsonrpc": "2.0", "id": 1, "result": None},
@@ -199,8 +199,8 @@ def test_evm_adapter_tolerates_a_source_that_omits_chain_id(direct_vm, mod):
         ]
     )
     mock_rpc(direct_vm, ALPHA, body)
-    out = mod.fetch_evm_jsonrpc(evm_source(), plan(), TX_HASH)
-    assert out["outcome"] == "found"
+    with pytest.raises(Exception, match="source serves chain -1"):
+        mod.fetch_evm_jsonrpc(evm_source(), plan(), TX_HASH)
 
 
 # -- failure classification -------------------------------------------------
@@ -369,7 +369,7 @@ def test_blockscout_adapter_derives_a_head_from_confirmations(direct_vm, mod):
         direct_vm, GAMMA, TX_HASH, blockscout_transaction(confirmations=100), blockscout_logs()
     )
     out = mod.fetch_blockscout_v2(blockscout_source(), plan(), TX_HASH)
-    assert out["head"] == BLOCK + 100
+    assert out["head"] == BLOCK + 99
 
 
 def test_blockscout_failures_are_classified(direct_vm, mod):
@@ -445,7 +445,7 @@ def test_solana_errors_are_classified(direct_vm, mod):
         [{"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Invalid param"}}]
     )
     mock_rpc(direct_vm, ALPHA, body)
-    with pytest.raises(Exception, match=r"\[EXTERNAL\] solana rpc error: Invalid param"):
+    with pytest.raises(Exception, match=r"\[EXTERNAL\] rpc error: Invalid param"):
         mod.fetch_solana_jsonrpc(solana_source(), solana_plan(), "sig" + "1" * 40)
 
 

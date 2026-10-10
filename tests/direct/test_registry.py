@@ -310,20 +310,10 @@ def test_invalid_retuning_is_rejected(verifier, args, message):
         verifier.set_chain_params(TEST_CHAIN, *args)
 
 
-def test_a_quorum_above_the_source_count_is_clamped_in_the_plan(
-    direct_vm, verifier, at_time, mod
-):
-    """Configuring a quorum of 5 on a chain with 3 sources must not deadlock
-    the chain. The effective quorum is clamped to what is reachable."""
-    from conftest import mock_all_agree
-
-    at_time("2026-01-15T10:30:00Z")
+def test_a_quorum_above_the_source_count_fails_closed(verifier):
     verifier.set_chain_params(TEST_CHAIN, 12, 10, 5)
-    mock_all_agree(direct_vm)
-
-    out = verifier.verify_transaction(TEST_CHAIN, TX_HASH)
-    assert out["confirmed"] is True
-    assert out["sources_agreeing"] == 3
+    with pytest.raises(Exception, match="configured quorum exceeds source budget"):
+        verifier.verify_transaction(TEST_CHAIN, TX_HASH)
 
 
 def test_a_chain_can_be_disabled_and_re_enabled(verifier):

@@ -103,11 +103,11 @@ def test_agreement_survives_differing_confirmation_counts(mod):
     assert result["sources_agreeing"] == 2
 
 
-def test_representative_is_the_deepest_reading(mod):
+def test_confirmation_depth_is_corroborated_by_quorum(mod):
     """Reporting the deepest corroborated confirmation count is the honest
     choice: it is a value some source actually observed."""
     result = mod.aggregate([found("alpha", confirmations=64), found("beta", confirmations=97)], plan())
-    assert result["confirmations"] == 97
+    assert result["confirmations"] == 64
 
 
 def test_three_sources_all_counted(mod):

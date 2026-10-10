@@ -155,6 +155,12 @@ class CrossChainReleaseGate(gl.Contract):
         )
         return gl.get_contract_at(self.verifier).view(state=state)
 
+    def _normalize_tx(self, tx_hash: str) -> str:
+        tx = str(tx_hash).strip()
+        if tx.startswith(("0x", "0X")):
+            return "0x" + tx[2:].lower()
+        return tx  # Solana base58 signatures are case sensitive.
+
     def _condition(self, condition_id: str) -> Condition:
         key = str(condition_id).strip()
         if key not in self.conditions:
@@ -293,13 +299,13 @@ class CrossChainReleaseGate(gl.Contract):
         if int(condition.deadline) > 0 and now >= int(condition.deadline):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} condition deadline has passed")
 
-        tx = str(tx_hash).strip()
+        tx = self._normalize_tx(tx_hash)
         if not tx:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} tx_hash must not be empty")
 
         # Replay protection. One cross-chain transaction settles at most one
         # condition, so a single deposit cannot be used to claim twice.
-        consumed_key = f"{condition.chain_id}|{tx.lower()}"
+        consumed_key = f"{condition.chain_id}|{tx}"
         if consumed_key in self.consumed_tx:
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} transaction already settled condition "
@@ -309,6 +315,8 @@ class CrossChainReleaseGate(gl.Contract):
         reader = self._verifier_view()
 
         if condition.assertion:
+            if self.require_strict and not bool(reader.is_verified_strict(condition.chain_id, tx)):
+                raise gl.vm.UserError(f"{ERROR_EXPECTED} transaction not strictly confirmed")
             proven = bool(
                 reader.is_event_proven(condition.chain_id, tx, condition.assertion)
             )
@@ -374,7 +382,7 @@ class CrossChainReleaseGate(gl.Contract):
     @gl.public.view
     def settled_condition_for(self, chain_id: str, tx_hash: str) -> str:
         """Which condition a given transaction already settled, if any."""
-        key = f"{str(chain_id).strip()}|{str(tx_hash).strip().lower()}"
+        key = f"{str(chain_id).strip()}|{self._normalize_tx(tx_hash)}"
         return self.consumed_tx.get(key, "")
 
     @gl.public.view
@@ -390,7 +398,7 @@ class CrossChainReleaseGate(gl.Contract):
 
         condition = self.conditions[key]
         now = self._now()
-        tx = str(tx_hash).strip()
+        tx = self._normalize_tx(tx_hash)
 
         if condition.settled:
             return {"ready": False, "reason": "already settled"}
@@ -398,7 +406,7 @@ class CrossChainReleaseGate(gl.Contract):
             return {"ready": False, "reason": "cancelled"}
         if int(condition.deadline) > 0 and now >= int(condition.deadline):
             return {"ready": False, "reason": "deadline passed"}
-        if f"{condition.chain_id}|{tx.lower()}" in self.consumed_tx:
+        if f"{condition.chain_id}|{tx}" in self.consumed_tx:
             return {"ready": False, "reason": "transaction already used"}
 
         reader = self._verifier_view()
@@ -411,6 +419,8 @@ class CrossChainReleaseGate(gl.Contract):
             }
 
         if condition.assertion:
+            if self.require_strict and not bool(reader.is_verified_strict(condition.chain_id, tx)):
+                return {"ready": False, "reason": "transaction not strictly confirmed", "verifier_status": str(record.get("status", ""))}
             proven = bool(
                 reader.is_event_proven(condition.chain_id, tx, condition.assertion)
             )
