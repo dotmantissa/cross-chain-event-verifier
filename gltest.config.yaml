@@ -1,0 +1,22 @@
+paths:
+  contracts: contracts
+  artifacts: artifacts
+
+environment: .env
+
+networks:
+  default: localnet
+
+  localnet:
+    url: http://127.0.0.1:4000/api
+    default_wait_interval: 3000
+    default_wait_retries: 60
+
+  studionet:
+    url: https://studio.genlayer.com/api
+    accounts:
+      - "${CCEV_DEPLOYER_KEY}"
+    # studio.genlayer.com is shared and rate limited, so poll patiently rather
+    # than hammering it: 10s between polls, up to 60 polls per transaction.
+    default_wait_interval: 10000
+    default_wait_retries: 60

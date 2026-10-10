@@ -1,0 +1,16 @@
+# Secrets. The deployer key lives here and must never be committed.
+.env
+.env.*
+!.env.example
+
+# gltest / pytest
+artifacts/
+.gltest_cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
