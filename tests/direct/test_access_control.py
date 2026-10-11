@@ -131,9 +131,10 @@ def test_reads_keep_working_while_paused(direct_vm, verifier, at_time):
     verifier.verify_transaction(TEST_CHAIN, TX_HASH)
 
     verifier.set_paused(True)
-    assert verifier.is_verified(TEST_CHAIN, TX_HASH) is True
-    assert verifier.is_verified_strict(TEST_CHAIN, TX_HASH) is True
+    assert verifier.is_verified(TEST_CHAIN, TX_HASH) is False
+    assert verifier.is_verified_strict(TEST_CHAIN, TX_HASH) is False
     assert verifier.get_verification(TEST_CHAIN, TX_HASH)["confirmed"] is True
+    assert verifier.get_verification(TEST_CHAIN, TX_HASH)["valid"] is False
     assert verifier.record_status(TEST_CHAIN, TX_HASH) == "success"
     assert verifier.list_chains()["count"] >= 1
     assert verifier.stats()["verifications"] == 1

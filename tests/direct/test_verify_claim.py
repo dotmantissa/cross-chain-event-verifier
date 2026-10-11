@@ -115,7 +115,10 @@ def test_claims_are_keyed_independently(direct_vm, verifier, at_time):
     mock_llm_verdict(direct_vm, verdict="mismatch")
     verifier.verify_claim(TEST_CHAIN, TX_HASH, "claim two")
 
-    assert verifier.is_claim_verified(TEST_CHAIN, TX_HASH, "claim one") is True
+    # A new adjudication refreshes the transaction context; older claim remains
+    # inspectable but needs re-adjudication against that context.
+    assert verifier.get_claim(TEST_CHAIN, TX_HASH, "claim one")["found"] is True
+    assert verifier.is_claim_verified(TEST_CHAIN, TX_HASH, "claim one") is False
     assert verifier.is_claim_verified(TEST_CHAIN, TX_HASH, "claim two") is False
 
 

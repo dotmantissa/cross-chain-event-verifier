@@ -1918,6 +1918,8 @@ class TxRecord:
     value_unit: str
     accounts: str
     programs: str
+    policy_revision: u256
+    revoked: bool
 
 
 @allow_storage
@@ -1936,6 +1938,7 @@ class ClaimRecord:
     epoch: u256
     identity_digest: str
     settlement_digest: str
+    tx_epoch: u256
 
 
 @allow_storage
@@ -1955,6 +1958,7 @@ class ProofRecord:
     epoch: u256
     identity_digest: str
     settlement_digest: str
+    tx_epoch: u256
 
 
 # ---------------------------------------------------------------------------
@@ -2122,10 +2126,19 @@ class CrossChainEventVerifier(gl.Contract):
     proof_records: TreeMap[str, ProofRecord]
 
     counters: TreeMap[str, u256]
+    policy_revision: u256
+    tx_versions: TreeMap[str, u256]
+    claim_keys: DynArray[str]
+    proof_keys: DynArray[str]
+    purge_kind: u256
+    purge_cursor: u256
 
     def __init__(self, register_defaults: bool = True) -> None:
         self.owner = gl.message.sender_address
         self.paused = False
+        self.policy_revision = u256(1)
+        self.purge_kind = u256(0)
+        self.purge_cursor = u256(0)
         # A finalised transaction cannot change, so its record is long lived.
         self.ttl_final = u256(30 * 24 * 60 * 60)
         # Anything short of the threshold can still be reorganised out.
@@ -2258,7 +2271,8 @@ class CrossChainEventVerifier(gl.Contract):
     def _store_tx(self, result: dict, now: int) -> TxRecord:
         key = _record_key(result["chain_id"], result["tx_hash"])
         previous = self.tx_records.get(key, None)
-        epoch = u256(int(previous.epoch) + 1) if previous is not None else u256(1)
+        epoch = u256(int(self.tx_versions.get(key, u256(0))) + 1)
+        self.tx_versions[key] = epoch
         if previous is None:
             self.tx_keys.append(key)
 
@@ -2300,6 +2314,8 @@ class CrossChainEventVerifier(gl.Contract):
             value_unit=str(result.get("value_unit", "wei")),
             accounts=json.dumps(result.get("accounts", [])),
             programs=json.dumps(result.get("programs", [])),
+            policy_revision=self.policy_revision,
+            revoked=False,
         )
         self.tx_records[key] = record
         self._bump("verifications")
@@ -2329,7 +2345,10 @@ class CrossChainEventVerifier(gl.Contract):
             "mined": bool(record.mined),
             "confirmed": bool(record.confirmed),
             "near_threshold": bool(record.near_threshold),
-            "valid": bool(record.confirmed) and not expired,
+            "valid": bool(record.confirmed) and not expired and self._policy_current(record),
+            "policy_revision": int(record.policy_revision),
+            "policy_current": self._policy_current(record),
+            "revoked": bool(record.revoked),
             "expired": expired,
             "status": record.status,
             "finality": record.finality,
@@ -2399,7 +2418,7 @@ class CrossChainEventVerifier(gl.Contract):
         now = _now_epoch_seconds()
 
         cached = self.tx_records.get(_record_key(chain, normalised), None)
-        if cached is not None and now < int(cached.expires_at):
+        if cached is not None and now < int(cached.expires_at) and self._policy_current(cached):
             self._bump("cache_hits")
             return self._tx_view(cached, now)
 
@@ -2494,7 +2513,10 @@ class CrossChainEventVerifier(gl.Contract):
             epoch=epoch,
             identity_digest=str(result["identity_digest"]),
             settlement_digest=str(result["settlement_digest"]),
+            tx_epoch=tx_record.epoch,
         )
+        if previous is None:
+            self.claim_keys.append(claim_key)
         self.claim_records[claim_key] = record
         self._bump("claims")
 
@@ -2554,7 +2576,10 @@ class CrossChainEventVerifier(gl.Contract):
             epoch=epoch,
             identity_digest=str(result["identity_digest"]),
             settlement_digest=str(result["settlement_digest"]),
+            tx_epoch=tx_record.epoch,
         )
+        if previous is None:
+            self.proof_keys.append(proof_key)
         self.proof_records[proof_key] = record
         self._bump("proofs")
 
@@ -2571,11 +2596,21 @@ class CrossChainEventVerifier(gl.Contract):
         view["transaction"] = self._tx_view(tx_record, now)
         return view
 
+    def _policy_current(self, record: TxRecord) -> bool:
+        config = self.chains.get(record.chain_id, None)
+        return (not self.paused and not record.revoked and config is not None
+                and bool(config.enabled) and int(record.policy_revision) == int(self.policy_revision))
+
+    def _invalidate_policy(self) -> None:
+        self.policy_revision = u256(int(self.policy_revision) + 1)
+
     def _subrecord_current(self, record: ClaimRecord | ProofRecord, now: int) -> bool:
         current = self.tx_records.get(_record_key(record.chain_id, record.tx_hash), None)
         return (
             current is not None
             and now < int(current.expires_at)
+            and self._policy_current(current)
+            and (not isinstance(record, ClaimRecord) or int(current.epoch) == int(record.tx_epoch))
             and bool(current.confirmed) == bool(record.tx_confirmed)
             and current.identity_digest == record.identity_digest
             and current.settlement_digest == record.settlement_digest
@@ -2603,6 +2638,7 @@ class CrossChainEventVerifier(gl.Contract):
             "expires_at_iso": _iso_from_epoch(int(record.expires_at)),
             "verifier": record.verifier.as_hex,
             "epoch": int(record.epoch),
+            "tx_epoch": int(record.tx_epoch),
         }
 
     def _proof_view(self, record: ProofRecord, now: int) -> dict:
@@ -2630,6 +2666,7 @@ class CrossChainEventVerifier(gl.Contract):
             "expires_at_iso": _iso_from_epoch(int(record.expires_at)),
             "verifier": record.verifier.as_hex,
             "epoch": int(record.epoch),
+            "tx_epoch": int(record.tx_epoch),
         }
 
     # -- read: the consumer-facing surface ---------------------------------
@@ -2647,7 +2684,7 @@ class CrossChainEventVerifier(gl.Contract):
             return False
         if _now_epoch_seconds() >= int(record.expires_at):
             return False
-        return bool(record.confirmed)
+        return bool(record.confirmed) and self._policy_current(record)
 
     @gl.public.view
     def is_verified_strict(self, chain_id: str, tx_hash: str) -> bool:
@@ -2662,7 +2699,7 @@ class CrossChainEventVerifier(gl.Contract):
             return False
         if _now_epoch_seconds() >= int(record.expires_at):
             return False
-        return bool(record.confirmed) and not bool(record.near_threshold)
+        return bool(record.confirmed) and self._policy_current(record) and not bool(record.near_threshold)
 
     @gl.public.view
     def get_verification(self, chain_id: str, tx_hash: str) -> dict:
@@ -2842,6 +2879,7 @@ class CrossChainEventVerifier(gl.Contract):
         return {
             "owner": self.owner.as_hex,
             "paused": bool(self.paused),
+            "policy_revision": int(self.policy_revision),
             "ttl_final": int(self.ttl_final),
             "ttl_confirming": int(self.ttl_confirming),
             "ttl_absent": int(self.ttl_absent),
@@ -2981,6 +3019,7 @@ class CrossChainEventVerifier(gl.Contract):
         self.chains[chain] = config
 
         ChainRegistered(chain, name=config.name, family=fam, sources=len(prepared)).emit()
+        self._invalidate_policy()
         return self.get_chain(chain)
 
     @gl.public.write
@@ -3020,6 +3059,7 @@ class CrossChainEventVerifier(gl.Contract):
                 sort_keys=True,
             )
         )
+        self._invalidate_policy()
         return self.get_chain(chain)
 
     @gl.public.write
@@ -3050,6 +3090,7 @@ class CrossChainEventVerifier(gl.Contract):
             config.sources.pop()
         for raw in kept:
             config.sources.append(raw)
+        self._invalidate_policy()
         return self.get_chain(chain)
 
     @gl.public.write
@@ -3074,6 +3115,7 @@ class CrossChainEventVerifier(gl.Contract):
         config.min_confirmations = u256(int(min_confirmations))
         config.drift_tolerance = u256(int(drift_tolerance))
         config.quorum = u256(int(quorum))
+        self._invalidate_policy()
         return self.get_chain(chain)
 
     @gl.public.write
@@ -3083,6 +3125,7 @@ class CrossChainEventVerifier(gl.Contract):
         if chain not in self.chains:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} chain {chain} is not registered")
         self.chains[chain].enabled = bool(enabled)
+        self._invalidate_policy()
         return self.get_chain(chain)
 
     @gl.public.write
@@ -3099,6 +3142,7 @@ class CrossChainEventVerifier(gl.Contract):
         self.ttl_final = u256(int(ttl_final))
         self.ttl_confirming = u256(int(ttl_confirming))
         self.ttl_absent = u256(int(ttl_absent))
+        self._invalidate_policy()
         return self.get_config()
 
     @gl.public.write
@@ -3110,6 +3154,7 @@ class CrossChainEventVerifier(gl.Contract):
                 f"{ERROR_EXPECTED} max_sources must be 1..{MAX_SOURCES_HARD_CAP}"
             )
         self.max_sources = u256(value)
+        self._invalidate_policy()
         return self.get_config()
 
     @gl.public.write
@@ -3117,6 +3162,7 @@ class CrossChainEventVerifier(gl.Contract):
         """Halt new verifications. Reads keep working, so consumers are unaffected."""
         self._require_owner()
         self.paused = bool(paused)
+        self._invalidate_policy()
         return self.get_config()
 
     @gl.public.write
@@ -3139,33 +3185,54 @@ class CrossChainEventVerifier(gl.Contract):
         return {"owner": self.owner.as_hex}
 
     @gl.public.write
-    def purge_expired(self, limit: int) -> dict:
-        """Delete expired transaction records to reclaim storage.
+    def revoke_transaction(self, chain_id: str, tx_hash: str) -> dict:
+        """Immediately veto a cached authorization; refresh requires new consensus."""
+        self._require_owner()
+        key = _record_key(str(chain_id).strip(), _norm_tx_hash(tx_hash))
+        record = self.tx_records.get(key, None)
+        if record is None:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} no cached transaction")
+        record.revoked = True
+        return self._tx_view(record, _now_epoch_seconds())
 
-        Only touches records that are already past their expiry, so it can
-        never remove an answer a consumer still relies on.
+    @gl.public.write
+    def purge_expired(self, limit: int) -> dict:
+        """Inspect at most limit records across transactions, claims and proofs.
+
+        Dense indexes use swap/pop deletion. The durable cursor advances over
+        live records too, so live prefixes cannot starve expired subrecords.
+        Record epochs remain monotonic even after deletion and reinsertion.
         """
         self._require_owner()
-        budget = max(0, min(int(limit), 200))
+        budget = max(0, min(int(limit), 200, len(self.tx_keys) + len(self.claim_keys) + len(self.proof_keys)))
         now = _now_epoch_seconds()
-
-        survivors: list[str] = []
         removed = 0
-        for index in range(len(self.tx_keys)):
-            key = self.tx_keys[index]
-            record = self.tx_records.get(key, None)
-            if record is None:
+        inspected = 0
+        empty_kinds = 0
+        while inspected < budget and empty_kinds < 3:
+            kind = int(self.purge_kind)
+            keys = self.tx_keys if kind == 0 else (self.claim_keys if kind == 1 else self.proof_keys)
+            records = self.tx_records if kind == 0 else (self.claim_records if kind == 1 else self.proof_records)
+            cursor = int(self.purge_cursor)
+            if cursor >= len(keys):
+                self.purge_kind = u256((kind + 1) % 3)
+                self.purge_cursor = u256(0)
+                empty_kinds += 1
                 continue
-            if removed < budget and now >= int(record.expires_at):
-                del self.tx_records[key]
-                removed += 1
-                continue
-            survivors.append(key)
-
-        if removed:
-            while len(self.tx_keys) > 0:
-                self.tx_keys.pop()
-            for key in survivors:
-                self.tx_keys.append(key)
-
-        return {"removed": removed, "remaining": len(self.tx_keys)}
+            empty_kinds = 0
+            key = keys[cursor]
+            record = records.get(key, None)
+            inspected += 1
+            if record is None or now >= int(record.expires_at):
+                if record is not None:
+                    del records[key]
+                    removed += 1
+                last = keys[len(keys) - 1]
+                keys.pop()
+                if cursor < len(keys):
+                    keys[cursor] = last
+            else:
+                self.purge_cursor = u256(cursor + 1)
+        return {"removed": removed, "remaining": len(self.tx_keys),
+                "claims_remaining": len(self.claim_keys), "proofs_remaining": len(self.proof_keys),
+                "inspected": inspected, "cursor": int(self.purge_cursor), "kind": int(self.purge_kind)}
