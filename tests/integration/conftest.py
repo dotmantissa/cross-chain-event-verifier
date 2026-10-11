@@ -199,14 +199,21 @@ def proven_fixture_event(verifier):
 def release_gate(verifier):
     """A release gate pointed at the deployed verifier."""
     gate = deploy_checkpointed("CrossChainReleaseGate", [str(verifier.address), True])
-    config = gate.get_config().call()
-    if os.getenv("CCEV_GATE_NONFINAL_DIAGNOSTIC") == "1":
-        # Explicit diagnostic only: some Studio hosts reject LATEST_FINAL
-        # inter-contract storage reads. The contract's default stays final.
-        if not config["allow_non_final"]:
-            receipt = gate.set_allow_non_final(args=[True]).transact(
-                wait_transaction_status=TransactionStatus.FINALIZED, **LONG_WAIT)
-            assert tx_execution_succeeded(receipt), receipt
-    elif config["allow_non_final"]:
-        raise ValueError("Checkpoint gate enables non-final reads; use a separate finalized-policy checkpoint")
+    assert gate.get_config().call()["evidence_policy"] == "finalized-message-with-current-veto"
     return gate
+
+
+def publish_finalized(verifier, gate, chain, tx, assertion=""):
+    """Follow the actual parent and emitted child IDs to final successful execution."""
+    receipt = verifier.publish_to_gate(args=[chain, tx, assertion, CalldataAddress(str(gate.address))]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED, **LONG_WAIT)
+    assert tx_execution_succeeded(receipt), receipt
+    client = get_gl_client()
+    tx_id = str(receipt.get("hash", receipt.get("transaction_hash", "")))
+    assert tx_id, receipt
+    children = client.get_triggered_transaction_ids(transaction_hash=tx_id)
+    assert len(children) == 1, {"parent": tx_id, "children": children, "receipt": receipt}
+    child = client.wait_for_transaction_receipt(transaction_hash=children[0],
+        status=TransactionStatus.FINALIZED, interval=10000, retries=90)
+    assert tx_execution_succeeded(child), child
+    return receipt, child

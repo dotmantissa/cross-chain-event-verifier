@@ -1578,7 +1578,8 @@ def render_ground_truth(result: dict, decoded: list) -> str:
         f"exists: {result['exists']}",
         f"execution_status: {result['status']}",
         f"confirmed_by_consensus: {result['confirmed']}",
-        f"finality: {result['finality']} ({result['confirmations']} confirmations)",
+        f"finality: {result['finality']}",
+        "exact_confirmation_count: unavailable (mutable observation, not a claim fact)",
         f"block_number: {result['block_number']}",
         f"sender: {result['from'] or '(none)'}",
         f"recipient: {result['to'] or '(none, contract creation or program call)'}",
@@ -1668,6 +1669,7 @@ def parse_adjudication(raw: typing.Any) -> dict:
 
 def adjudicate_claim(result: dict, decoded: list, claim: str) -> dict:
     ground_truth = render_ground_truth(result, decoded)
+    result["adjudication_context_digest"] = _keccak_text(ground_truth)
     prompt = (
         "You are verifying whether a natural-language claim about a blockchain "
         "transaction is accurate.\n\n"
@@ -1784,15 +1786,12 @@ def _finality_compatible(leader: dict, validator: dict, plan: dict) -> bool:
     gap = abs(int(leader.get("confirmations", 0)) - int(validator.get("confirmations", 0)))
     if gap > int(plan["drift_tolerance"]):
         return False
-    # Claims consume depth and head as facts, so those inputs must be exact.
-    if leader.get("claim") and gap:
-        return False
     if "head" in leader or "head" in validator:
         head_gap = int(leader.get("head", -1)) - int(validator.get("head", -1))
         depth_gap = int(leader.get("confirmations", 0)) - int(validator.get("confirmations", 0))
-        if bool(leader.get("mined")) and head_gap != depth_gap:
+        if abs(head_gap) > int(plan["drift_tolerance"]):
             return False
-        if leader.get("claim") and head_gap:
+        if bool(leader.get("mined")) and head_gap != depth_gap:
             return False
     return True
 
@@ -1804,7 +1803,7 @@ def results_agree(leader: dict, validator: dict, plan: dict) -> bool:
     authorization. Model prose and confidence remain explanatory, never policy.
     """
     exact = (
-        "chain_id", "tx_hash", "claim", "agreement", "exists", "mined",
+        "chain_id", "tx_hash", "claim", "adjudication_context_digest", "agreement", "exists", "mined",
         "confirmed", "status", "finality", "near_threshold",
         "settlement_corroborated", "identity_digest", "settlement_digest",
         "from", "to", "value", "value_known", "value_unit", "nonce", "selector", "accounts", "programs",
@@ -1815,6 +1814,16 @@ def results_agree(leader: dict, validator: dict, plan: dict) -> bool:
     )
     if any(leader.get(field) != validator.get(field) for field in exact):
         return False
+    left_reports = leader.get("source_reports", [])
+    right_reports = validator.get("source_reports", [])
+    if len(left_reports) != len(right_reports):
+        return False
+    for left, right in zip(left_reports, right_reports):
+        for field in ("label", "kind", "outcome"):
+            if left.get(field) != right.get(field):
+                return False
+        if abs(int(left.get("confirmations", 0)) - int(right.get("confirmations", 0))) > int(plan["drift_tolerance"]):
+            return False
     if bool(leader.get("confirmed")) and (
         not bool(leader.get("exists")) or not bool(leader.get("mined"))
         or leader.get("status") != STATUS_SUCCESS
@@ -2668,6 +2677,53 @@ class CrossChainEventVerifier(gl.Contract):
             "epoch": int(record.epoch),
             "tx_epoch": int(record.tx_epoch),
         }
+
+    @gl.public.view
+    def get_release_evidence(self, chain_id: str, tx_hash: str, assertion: str) -> dict:
+        """Stable authorization snapshot for finalized delivery and current veto."""
+        chain = str(chain_id).strip()
+        tx = _norm_tx_hash(tx_hash)
+        canonical = canonical_assertion(parse_assertion(assertion)) if str(assertion).strip() else ""
+        record = self.tx_records.get(_record_key(chain, tx), None)
+        if record is None:
+            return {"valid": False}
+        now = _now_epoch_seconds()
+        valid = bool(record.confirmed) and now < int(record.expires_at) and self._policy_current(record)
+        expiry = int(record.expires_at)
+        proof_epoch = 0
+        if canonical:
+            proof = self.proof_records.get(_sub_key(chain, tx, canonical), None)
+            if proof is None:
+                valid = False
+            else:
+                valid = valid and bool(self._proof_view(proof, now)["valid"])
+                expiry = min(expiry, int(proof.expires_at))
+                proof_epoch = int(proof.epoch)
+        return {"chain_id": chain, "tx_hash": tx, "assertion": canonical,
+                "valid": valid, "strict": valid and not bool(record.near_threshold),
+                "tx_epoch": int(record.epoch), "proof_epoch": proof_epoch,
+                "policy_revision": int(record.policy_revision), "expires_at": expiry,
+                "identity_digest": record.identity_digest, "settlement_digest": record.settlement_digest}
+
+    @gl.public.write
+    def publish_to_gate(self, chain_id: str, tx_hash: str, assertion: str, gate: Address) -> dict:
+        """Queue evidence only after this transaction's finalization.
+
+        A receiver authenticates this contract as sender. Its current-state
+        veto rejects refreshed, revoked or expired snapshots. No positive
+        non-final read can independently authorize a release.
+        """
+        self._require_can_submit()
+        if str(assertion).strip():
+            self.prove_event(chain_id, tx_hash, assertion)
+        else:
+            self.verify_transaction(chain_id, tx_hash)
+        evidence = self.get_release_evidence(chain_id, tx_hash, assertion)
+        if not evidence.get("valid"):
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} no valid evidence to publish")
+        gl.get_contract_at(gate).emit(on="finalized").receive_verification(
+            json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+        return evidence
 
     # -- read: the consumer-facing surface ---------------------------------
 

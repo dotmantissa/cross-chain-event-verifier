@@ -47,3 +47,19 @@ def test_solana_account_disagreement_cannot_form_source_quorum(direct_vm,verifie
     result=verifier.verify_transaction('sol',sig)
     assert not result['valid'] and result['status']=='disputed'
     assert not verifier.is_verified_strict('sol',sig)
+
+
+def test_claim_context_and_source_identity_are_bound(direct_vm,verifier,mod,at_time):
+    from conftest import mock_llm_verdict
+    at_time("2026-01-15T10:30:00Z");mock_all_agree(direct_vm);mock_llm_verdict(direct_vm)
+    claim="A USDT transfer occurred"
+    honest=mod.run_pipeline(verifier._build_plan(TEST_CHAIN),TX_HASH,claim,"")
+    verifier.verify_claim(TEST_CHAIN,TX_HASH,claim)
+    assert not direct_vm.run_validator(leader_result=dict(honest,adjudication_context_digest="forged"))
+    forged=deepcopy(honest);forged["source_reports"][0]["label"]="invented corroborator"
+    assert not direct_vm.run_validator(leader_result=forged)
+    # Mutable depth is omitted from model evidence; no exact-count claim is
+    # established from an observation that independent validators can outdate.
+    evidence=mod.render_ground_truth(honest,honest["decoded_events"])
+    assert "exact_confirmation_count: unavailable" in evidence
+    assert "65 confirmations" not in evidence

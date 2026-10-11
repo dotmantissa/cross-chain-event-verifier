@@ -7,7 +7,7 @@ import uuid
 import pytest
 from genlayer_py.types import CalldataAddress, TransactionStatus
 from gltest.assertions import tx_execution_succeeded
-from conftest import ETH, TX, ABSENT_TX, LONG_WAIT, transfer_assertion
+from conftest import ETH, TX, ABSENT_TX, LONG_WAIT, transfer_assertion, publish_finalized
 
 
 def transact(call):
@@ -43,25 +43,25 @@ def create(gate, identifier, assertion=""):
         "Live integration condition", CalldataAddress(beneficiary), 0]))
 
 
-def test_gate_configuration_matches_requested_read_policy(release_gate):
+def test_gate_configuration_requires_finalized_delivery(release_gate):
     config = release_gate.get_config().call()
     assert config["require_strict"] is True
-    assert config["allow_non_final"] is (os.getenv("CCEV_GATE_NONFINAL_DIAGNOSTIC") == "1")
+    assert config["allow_non_final"] is False
+    assert config["evidence_policy"] == "finalized-message-with-current-veto"
 
 
-def test_event_condition_settles_and_blocks_replay(release_gate, proven_fixture_event, condition_id):
+def test_event_condition_settles_and_blocks_replay(release_gate, verifier, proven_fixture_event, condition_id):
     second = condition_id + "-replay"
-    previous = release_gate.settled_condition_for(args=[ETH, TX]).call()
-    if previous:
-        # Checkpoint reuse preserves the consumer's permanent replay history.
-        condition_id = previous
-    else:
-        create(release_gate, condition_id, proven_fixture_event)
-        record = release_gate.get_condition(args=[condition_id]).call()
-        assert record["assertion"]
-        assert record["open"] is True
-        assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is True
-        transact(release_gate.settle(args=[condition_id, TX]))
+    # Use a new contract for each live validation run; reused settlement cannot
+    # substitute for actually executing the lifecycle under the current source.
+    assert not release_gate.settled_condition_for(args=[ETH, TX]).call(), "use a fresh gate deployment checkpoint"
+    create(release_gate, condition_id, proven_fixture_event)
+    record = release_gate.get_condition(args=[condition_id]).call()
+    assert record["assertion"] and record["open"]
+    assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is False
+    publish_finalized(verifier, release_gate, ETH, TX, proven_fixture_event)
+    assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is True
+    transact(release_gate.settle(args=[condition_id, TX]))
     settled = release_gate.get_condition(args=[condition_id]).call()
     assert settled["settled"] is True
     assert settled["settled_tx"] == TX
@@ -77,7 +77,7 @@ def test_event_condition_settles_and_blocks_replay(release_gate, proven_fixture_
 def test_an_unverified_transaction_cannot_settle(release_gate, condition_id):
     create(release_gate, condition_id)
     assert release_gate.check_readiness(args=[condition_id, ABSENT_TX]).call()["ready"] is False
-    rejected(release_gate.settle(args=[condition_id, ABSENT_TX]), "has not confirmed")
+    rejected(release_gate.settle(args=[condition_id, ABSENT_TX]), "no finalized evidence")
     assert release_gate.is_settled(args=[condition_id]).call() is False
 
 
@@ -109,6 +109,7 @@ def test_strict_policy_applies_to_event_conditions(release_gate, verifier, condi
         beneficiary = release_gate.get_config().call()["owner"]
         transact(release_gate.create_condition(args=[condition_id, chain, assertion,
             "Strict confirmation regression", CalldataAddress(beneficiary), 0]))
+        publish_finalized(verifier, release_gate, chain, TX, assertion)
         assert release_gate.check_readiness(args=[condition_id, TX]).call()["ready"] is False
         rejected(release_gate.settle(args=[condition_id, TX]), "not strictly confirmed")
         transact(release_gate.set_require_strict(args=[False]))
@@ -118,3 +119,27 @@ def test_strict_policy_applies_to_event_conditions(release_gate, verifier, condi
     finally:
         transact(release_gate.set_require_strict(args=[True]))
         transact(verifier.set_chain_enabled(args=[chain, False]))
+
+
+def test_refresh_requires_new_finalized_delivery(release_gate, verifier, condition_id):
+    from conftest import get_gl_client
+    chain = "refresh-" + uuid.uuid4().hex[:12]
+    ethereum = verifier.get_chain(args=[ETH]).call()
+    sources = [{"label": s["label"], "kind": s["kind"], "url": s["url"]} for s in ethereum["sources"]]
+    transact(verifier.register_chain(args=[chain, "Refresh lifecycle", "evm", 1,12,10,2,json.dumps(sources)]))
+    beneficiary = release_gate.get_config().call()["owner"]
+    transact(release_gate.create_condition(args=[condition_id,chain,"","Refresh regression",CalldataAddress(beneficiary),0]))
+    publish_finalized(verifier,release_gate,chain,TX)
+    assert release_gate.check_readiness(args=[condition_id,TX]).call()["ready"]
+    # Submit first and explicitly poll the stored ID to recover chain state.
+    client=get_gl_client()
+    tx_id=client.write_contract(address=str(verifier.address),function_name="refresh_transaction",args=[chain,TX])
+    receipt=client.wait_for_transaction_receipt(transaction_hash=tx_id,status=TransactionStatus.FINALIZED,interval=10000,retries=90)
+    assert tx_execution_succeeded(receipt),receipt
+    assert not release_gate.check_readiness(args=[condition_id,TX]).call()["ready"]
+    rejected(release_gate.settle(args=[condition_id,TX]),"vetoes snapshot")
+    publish_finalized(verifier,release_gate,chain,TX)
+    assert release_gate.check_readiness(args=[condition_id,TX]).call()["ready"]
+    transact(release_gate.settle(args=[condition_id,TX]))
+    assert release_gate.is_settled(args=[condition_id]).call()
+    transact(verifier.set_chain_enabled(args=[chain,False]))

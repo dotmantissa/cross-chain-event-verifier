@@ -1,51 +1,15 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
-"""
-Cross-Chain Release Gate
-========================
+"""Cross-Chain Release Gate.
 
-A reference consumer of the Cross-Chain Event Verifier, and a usable primitive
-in its own right.
+Only the owner registers release conditions; any keeper may settle them.
+The verifier delivers an authenticated snapshot via emit(on="finalized").
+The gate then reads current verifier evidence solely as a veto: it must match
+that finalized snapshot exactly. A positive non-final read alone never
+releases authorization. Refreshes, policy changes, revocation and expiry veto
+old snapshots. Call publish_to_gate again to deliver fresh finalized evidence.
 
-A sponsor registers a condition: "on chain X, a transaction must emit this
-event". Anyone may then settle that condition by pointing at a transaction
-hash. The gate asks the verifier whether that transaction was proven, and if it
-was, records the condition as met. Downstream contracts and dApps read
-``is_settled`` and act on it.
-
-Why this contract has no equivalence principle
------------------------------------------------
-It performs no non-deterministic work at all. There are no web requests and no
-language model calls, so there is nothing for validators to disagree about. All
-of the subjective work already happened inside the verifier, under consensus,
-and was cached. This gate only reads that cached result.
-
-That is the point of the verifier being a separate primitive: consensus is paid
-for once, by one contract, and every consumer afterwards is plain deterministic
-logic.
-
-The two-step settlement flow
------------------------------
-Cross-contract *writes* on GenLayer are asynchronous (``emit()`` queues a call
-for after the current transaction), while cross-contract *reads* are
-synchronous. A gate cannot therefore trigger a verification and read its result
-in one transaction. Settlement is two steps:
-
-1. Someone calls ``verify_transaction`` or ``prove_event`` on the verifier.
-   Consensus runs and the result is cached on-chain.
-2. Someone calls ``settle`` here. The gate reads the cached result
-   synchronously and decides.
-
-Step 1 is permissionless on the verifier, so anyone can perform it, including
-the same actor who calls step 2. The verifier's cache is what makes step 2
-cheap and deterministic.
-
-Reading against finalised state
---------------------------------
-``gl.get_contract_at(addr).view(state=...)`` chooses which version of the
-verifier's storage to read. A gate that releases value should read
-``LATEST_FINAL``, so it cannot act on a verifier record that is still
-rollback-eligible. That is the default here, and ``allow_non_final`` exists for
-callers who would rather have a faster answer than a final one.
+Downstream consumers must wait for the gate settlement itself to finalize.
+This reference records authorization; it does not hold or transfer funds.
 """
 
 import datetime
@@ -114,18 +78,22 @@ class CrossChainReleaseGate(gl.Contract):
     require_strict: bool
     """Demand is_verified_strict, rejecting borderline confirmation depth."""
     allow_non_final: bool
-    """Read verifier storage that is not yet finalised. Off by default."""
+    """Deprecated storage slot. Unsafe positive reads are never permitted."""
 
     condition_ids: DynArray[str]
     conditions: TreeMap[str, Condition]
     consumed_tx: TreeMap[str, str]
     """chain|tx_hash -> condition_id. Blocks reusing one transaction twice."""
 
+    paused: bool
+    finalized_evidence: TreeMap[str, str]
+
     def __init__(self, verifier: Address, require_strict: bool = True) -> None:
         self.owner = gl.message.sender_address
         self.verifier = verifier
         self.require_strict = require_strict
         self.allow_non_final = False
+        self.paused = False
 
     # -- internals ---------------------------------------------------------
 
@@ -145,15 +113,50 @@ class CrossChainReleaseGate(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} owner only")
 
     def _verifier_view(self):
-        """A read namespace on the verifier.
+        # Pure assertion normalization and current-state negative veto only.
+        # Positive authorization requires independently stored finalized delivery.
+        return gl.get_contract_at(self.verifier).view(state=StorageType.LATEST_NON_FINAL)
 
-        Finalised state by default, so a release decision cannot be made
-        against a verifier record that is still rollback-eligible.
-        """
-        state = (
-            StorageType.LATEST_NON_FINAL if self.allow_non_final else StorageType.LATEST_FINAL
-        )
-        return gl.get_contract_at(self.verifier).view(state=state)
+    def _evidence_key(self, chain: str, tx: str, assertion: str) -> str:
+        return json.dumps([self.verifier.as_hex, chain, tx, assertion], separators=(",", ":"))
+
+    def _authorization(self, condition: Condition, tx: str, now: int) -> str:
+        if self.paused:
+            return "gate is paused"
+        key = self._evidence_key(condition.chain_id, tx, condition.assertion)
+        raw = self.finalized_evidence.get(key, "")
+        if not raw:
+            return "no finalized evidence; call publish_to_gate and wait for delivery"
+        snapshot = json.loads(raw)
+        if now >= int(snapshot["expires_at"]):
+            return "finalized evidence expired"
+        if not bool(snapshot["valid"]):
+            return "finalized evidence is not valid"
+        if self.require_strict and not bool(snapshot["strict"]):
+            return "transaction not strictly confirmed"
+        current = self._verifier_view().get_release_evidence(condition.chain_id, tx, condition.assertion)
+        if current != snapshot:
+            return "current verifier evidence vetoes snapshot; refresh and republish"
+        return ""
+
+    @gl.public.write
+    def receive_verification(self, evidence_json: str) -> dict:
+        """Only the verifier's finalized emission may supply positive evidence."""
+        if gl.message.sender_address != self.verifier:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} verifier only")
+        if len(evidence_json) > 4096:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} oversized evidence")
+        evidence = json.loads(evidence_json)
+        if not isinstance(evidence, dict) or not evidence.get("valid"):
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} invalid evidence")
+        key = self._evidence_key(str(evidence["chain_id"]), str(evidence["tx_hash"]), str(evidence["assertion"]))
+        old = self.finalized_evidence.get(key, "")
+        if old:
+            previous = json.loads(old)
+            if (int(previous["tx_epoch"]), int(previous["proof_epoch"])) > (int(evidence["tx_epoch"]), int(evidence["proof_epoch"])):
+                return {"stored": False, "reason": "older evidence"}
+        self.finalized_evidence[key] = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        return {"stored": True, "tx_epoch": int(evidence["tx_epoch"])}
 
     def _normalize_tx(self, tx_hash: str) -> str:
         tx = str(tx_hash).strip()
@@ -210,6 +213,9 @@ class CrossChainReleaseGate(gl.Contract):
 
         ``deadline`` is unix seconds, or 0 for no deadline.
         """
+        self._require_owner()
+        if self.paused:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} gate is paused")
         key = str(condition_id).strip()
         if not key:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} condition_id must not be empty")
@@ -281,13 +287,10 @@ class CrossChainReleaseGate(gl.Contract):
 
     @gl.public.write
     def settle(self, condition_id: str, tx_hash: str) -> dict:
-        """Settle a condition against a transaction the verifier has checked.
+        """Settle against delivered finalized evidence with a current-state veto.
 
-        Reads the verifier synchronously. Requires that the verifier has
-        already run consensus on this transaction: call ``prove_event`` (or
-        ``verify_transaction`` for an assertion-free condition) on the verifier
-        first. Nothing here is non-deterministic, so this transaction needs no
-        equivalence principle of its own.
+        Call publish_to_gate on the verifier and wait for parent and delivery
+        to finalize first. Readiness and settlement apply the same checks.
         """
         condition = self._condition(condition_id)
         now = self._now()
@@ -312,27 +315,9 @@ class CrossChainReleaseGate(gl.Contract):
                 f"{self.consumed_tx[consumed_key]}"
             )
 
-        reader = self._verifier_view()
-
-        if condition.assertion:
-            if self.require_strict and not bool(reader.is_verified_strict(condition.chain_id, tx)):
-                raise gl.vm.UserError(f"{ERROR_EXPECTED} transaction not strictly confirmed")
-            proven = bool(
-                reader.is_event_proven(condition.chain_id, tx, condition.assertion)
-            )
-            if not proven:
-                raise gl.vm.UserError(
-                    f"{ERROR_EXPECTED} verifier has not proven this event for {tx}"
-                )
-        else:
-            if self.require_strict:
-                confirmed = bool(reader.is_verified_strict(condition.chain_id, tx))
-            else:
-                confirmed = bool(reader.is_verified(condition.chain_id, tx))
-            if not confirmed:
-                raise gl.vm.UserError(
-                    f"{ERROR_EXPECTED} verifier has not confirmed transaction {tx}"
-                )
+        reason = self._authorization(condition, tx, now)
+        if reason:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} {reason}")
 
         condition.settled = True
         condition.settled_by = gl.message.sender_address
@@ -409,36 +394,8 @@ class CrossChainReleaseGate(gl.Contract):
         if f"{condition.chain_id}|{tx}" in self.consumed_tx:
             return {"ready": False, "reason": "transaction already used"}
 
-        reader = self._verifier_view()
-        record = reader.get_verification(condition.chain_id, tx)
-        if not bool(record.get("found")):
-            return {
-                "ready": False,
-                "reason": "verifier has no record; run a verification first",
-                "verifier_status": "unverified",
-            }
-
-        if condition.assertion:
-            if self.require_strict and not bool(reader.is_verified_strict(condition.chain_id, tx)):
-                return {"ready": False, "reason": "transaction not strictly confirmed", "verifier_status": str(record.get("status", ""))}
-            proven = bool(
-                reader.is_event_proven(condition.chain_id, tx, condition.assertion)
-            )
-            return {
-                "ready": proven,
-                "reason": "" if proven else "event not proven",
-                "verifier_status": str(record.get("status", "")),
-            }
-
-        if self.require_strict:
-            confirmed = bool(reader.is_verified_strict(condition.chain_id, tx))
-        else:
-            confirmed = bool(reader.is_verified(condition.chain_id, tx))
-        return {
-            "ready": confirmed,
-            "reason": "" if confirmed else "transaction not confirmed",
-            "verifier_status": str(record.get("status", "")),
-        }
+        reason = self._authorization(condition, tx, now)
+        return {"ready": not bool(reason), "reason": reason}
 
     @gl.public.view
     def get_config(self) -> dict:
@@ -446,7 +403,9 @@ class CrossChainReleaseGate(gl.Contract):
             "owner": self.owner.as_hex,
             "verifier": self.verifier.as_hex,
             "require_strict": bool(self.require_strict),
-            "allow_non_final": bool(self.allow_non_final),
+            "allow_non_final": False,
+            "evidence_policy": "finalized-message-with-current-veto",
+            "paused": bool(self.paused),
             "condition_count": len(self.condition_ids),
         }
 
@@ -466,15 +425,9 @@ class CrossChainReleaseGate(gl.Contract):
         return self.get_config()
 
     @gl.public.write
-    def set_allow_non_final(self, allow_non_final: bool) -> dict:
-        """Permit reads against non-finalised verifier state.
-
-        Faster, but a settlement decided this way can be made against a
-        verifier record that is later rolled back. Leave off when settlement
-        releases value.
-        """
+    def set_paused(self, paused: bool) -> dict:
         self._require_owner()
-        self.allow_non_final = bool(allow_non_final)
+        self.paused = bool(paused)
         return self.get_config()
 
     @gl.public.write

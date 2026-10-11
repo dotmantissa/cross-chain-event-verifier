@@ -22,3 +22,4 @@ jobs:
       - run: genvm-lint typecheck contracts/examples/cross_chain_release_gate.py
       - run: python scripts/prepare_direct_sdk.py
       - run: pytest -p no:gltest tests/direct -q
+      - run: pytest -p no:gltest tests/gate -q
