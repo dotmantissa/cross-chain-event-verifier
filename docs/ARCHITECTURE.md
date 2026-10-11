@@ -12,8 +12,9 @@ flowchart LR
     N --> C
     C --> S[Store agreed transaction and proof]
     S --> F[Wait for GenLayer finalization]
-    F --> G[Release gate reads finalized evidence]
-    G --> A[Record authorization with replay protection]
+    F --> G[Authenticated finalized message to release gate]
+    G --> Veto[Current verifier snapshot must match]
+    Veto --> A[Record authorization with replay protection]
 ```
 
 ## Evidence pipeline
@@ -24,7 +25,7 @@ EVM JSON-RPC sources use one batch for chain ID, transaction, receipt and head. 
 
 Blockscout v2 supplies indexed transaction details and paginated logs. The adapter follows bounded pagination, rejects repeated pages and log indices, and restores receipt log order by index. Etherscan v2 proxies EVM calls and requires an API key. Solana requests `getTransaction` with finalized commitment, binds the returned first signature to the request, and separately reads the slot head; program log messages become topic-less log entries.
 
-The identity digest covers sender, recipient, native value, selector and nonce. The settlement digest covers execution status, block number, transaction index, created contract and all normalized logs in order. These are summary commitments, not recovered-signature checks or light-client inclusion proofs.
+The identity digest covers sender, recipient, native value and its known/unit flags, selector, nonce, and the complete supported Solana accounts/programs lists. Version-0 account lists resolve static keys followed by loaded writable and readonly addresses, including inner-instruction programs. Unsupported SOL/SPL transfer values are explicitly unknown. The settlement digest covers execution status, block number, transaction index, created contract and all normalized logs in order. These are summary commitments, not recovered-signature checks or light-client inclusion proofs.
 
 ## Source quorum
 
@@ -38,19 +39,21 @@ Removing sources or lowering the query budget never silently lowers quorum. An i
 
 ## Validator comparison
 
-Validators rerun the substantive pipeline. They compare existence, identity digests and returned identity fields, agreement and settlement-corroboration classes, and the `near_threshold` flag. If both sides see settlement, settlement digests, execution status and returned settlement/decoded fields must match. Structured assertion outcomes, counts and reported matching indices also agree exactly. Claim verdicts agree exactly, with a bounded confidence difference; reasoning text is explanatory.
+Validators rerun the substantive pipeline. All authorization booleans, mined state, finality, identity and settlement commitments, returned supported facts, summary truncation, source counts, assertion outcomes/counts/indices, and source report identities/outcomes match exactly. Confirmation depth and head can drift only within the configured limit while preserving every consumer decision. Threshold crossings and pending/mined transitions require a new consensus result.
 
-Pending/mined transitions and a narrowly bounded threshold crossing can be tolerated as temporal drift. Strict consumers reject `near_threshold` records. Source labels, request-error details, timestamps and raw head heights may differ. A leader cannot retain an honest digest while changing stored recipient, amount or decoded-event fields.
+Claim verdicts and a commitment to the entire rendered model evidence match exactly. Mutable exact confirmation counts are unavailable to claim adjudication. Claims about unsupported or omitted facts must be indeterminate. Confidence has a bounded tolerance and reasoning is explanatory; neither drives release policy. Diagnostic request-error wording can vary.
 
 Expected and external errors require matching classifications/messages. Two transient errors may agree as a failed transaction. Malformed model output never agrees through the error comparator and therefore cannot lock in a result.
 
 ## Storage and cache
 
-Typed GenLayer `TreeMap`, `DynArray` and storage dataclasses persist records. Currency is an integer in native base units; EVM values are exposed as decimal strings. The clock comes from the deterministic transaction datetime.
+Typed GenLayer `TreeMap`, `DynArray` and storage dataclasses persist records. EVM native values are decimal strings in wei. Solana native value and `value_wei` are null because transfer amounts are not decoded. Deterministic transaction datetime supplies the clock.
 
-Deep confirmed records use a 30-day TTL, confirming/pending results 10 minutes, and absent/disputed results 3 minutes. A refresh performs a new observation even when the cache is fresh. Claim and proof records commit to the transaction identity/settlement they were evaluated against. A later refresh that changes settlement, removes the transaction, or loses confirmation makes those old subrecords invalid. Subrecords also require a fresh current transaction record; identical later evidence can preserve their validity without a new model run.
+Deep confirmed records use a 30-day TTL, confirming/pending results 10 minutes, and absent/disputed results 3 minutes. Refresh increments a monotonic transaction epoch, including after purge/reinsert. Every claim binds the epoch it was adjudicated against, so a refresh requires re-adjudication. Deterministic event proofs remain usable only with matching complete identity/settlement evidence and current valid transaction policy.
 
-`confirmed` and `satisfied` report historical stored results. Consumer predicates and `valid` include expiry/current-evidence checks. Always use those predicates for decisions. Cache hits use previously accepted policy/evidence until expiry or refresh; registry changes and pausing do not retroactively rewrite every cached record.
+Source and confirmation-policy changes increment a global policy revision and veto cached positives. Pause, disabled chains, expiry and explicit transaction revocation also veto positives. Unpausing does not resurrect old generations. `confirmed` and `satisfied` are historical observations; use `valid` and consumer predicates for authorization. Cleanup inspects at most the supplied budget (maximum 200) across transaction/claim/proof records using durable cursors and swap/pop dense indexes; it does not scan all storage. Monotonic transaction-version counters are retained to prevent old evidence from aliasing a recreated record.
+
+The release gate accepts positive evidence only from its verifier's finalized emission. Current non-final reads can normalize a pure assertion or veto a snapshot; they cannot independently authorize settlement. Snapshots bind transaction/proof epochs, policy revision, exact identity/settlement, expiry and strict/valid decisions. Refresh, revocation or policy changes require republication. Owners alone register conditions; permissionless keepers settle them with replay protection. Downstream effects still wait for the gate settlement itself to finalize.
 
 The contract hashes up to 1,024 logs, stores up to 24 decoded summaries and reports at most 16 matching indices. Event assertions run against all logs, so summary truncation does not change assertion correctness. Natural-language analysis is limited to the rendered summary; claims requiring omitted/unknown facts can be indeterminate.
 

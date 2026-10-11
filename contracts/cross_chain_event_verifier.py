@@ -31,19 +31,12 @@ Every verification runs inside ``gl.vm.run_nondet``. The leader performs the
 whole pipeline and returns a verdict. Each validator independently performs the
 *same* pipeline from scratch, against the same registry of sources, and then
 compares its own verdict with the leader's. Nothing about the leader's answer is
-taken on faith. The comparison is deliberately asymmetric about what must match:
-
-* Existence and transaction identity must match exactly. These are facts
-  signed by the transaction's own sender and cannot legitimately differ.
-* The binary ``confirmed`` verdict must match, with a hysteresis band around
-  the confirmation threshold so a boundary reading does not fail consensus.
-* Whether a natural-language claim matches the transaction must match exactly.
-* Confirmation counts, gas figures, explorer labels and timestamps are allowed
-  to differ freely. They drift between two reads of the same transaction and
-  carry no security meaning here.
-
-That split is the whole design. It is strict where strictness is a security
-property and tolerant where strictness would only produce flaky consensus.
+taken on faith. Authorization, mined state, finality, complete supported facts,
+settlement, source counts and structured assertion outcomes must match exactly.
+Observed confirmation depth and head may drift within the configured limit only
+while every authorization decision stays unchanged. Natural-language verdicts
+and the full model-evidence commitment must match; model prose is explanatory.
+Mutable exact confirmation counts are unavailable to claim adjudication.
 
 Two verification modes
 ----------------------
@@ -61,9 +54,8 @@ of the above build on, and is the cheapest of the three.
 
 Reading the result from another contract
 ----------------------------------------
-    verifier = gl.get_contract_at(Address(VERIFIER_ADDRESS))
-    if verifier.view().is_verified("1", tx_hash):
-        ...
+    # Publish positive evidence through a finalized message to a release gate.
+    # See publish_to_gate and the consumer's current-evidence veto.
 
 See ``docs/INTEGRATION.md`` for the full consumer guide.
 """
@@ -708,9 +700,8 @@ def evaluate_assertion(logs: list, spec: dict) -> tuple[bool, list]:
 #   identity   is signed by the sender and fixed the moment it is broadcast
 #   settlement only exists once the transaction is mined
 #
-# Comparing them separately is what lets a pending-versus-mined race between
-# the leader and a validator pass consensus, without ever loosening the
-# guarantee on a transaction that both sides already see as mined.
+# Both commitments and the mined/authorization decisions bind independently.
+# A pending/mined transition requires a new consensus result.
 # ---------------------------------------------------------------------------
 
 
@@ -2148,7 +2139,8 @@ class CrossChainEventVerifier(gl.Contract):
         self.policy_revision = u256(1)
         self.purge_kind = u256(0)
         self.purge_cursor = u256(0)
-        # A finalised transaction cannot change, so its record is long lived.
+        # Deep successful evidence gets a long TTL under explicit source/depth
+        # assumptions. Revocation, policy revisions and refresh remain active.
         self.ttl_final = u256(30 * 24 * 60 * 60)
         # Anything short of the threshold can still be reorganised out.
         self.ttl_confirming = u256(10 * 60)

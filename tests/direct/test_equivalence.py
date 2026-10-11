@@ -177,10 +177,8 @@ def test_gas_and_labels_are_not_compared(mod):
 # ---------------------------------------------------------------------------
 
 
-def test_crossing_the_threshold_between_reads_agrees(mod):
-    """The boundary flake this band exists for. The leader read at 11
-    confirmations (below a threshold of 12) and the validator at 13. Without
-    the band these would disagree on a purely timing-driven difference."""
+def test_crossing_the_threshold_between_reads_disagrees(mod):
+    """Different decisions must disagree even when honest observations advance."""
     leader = result(confirmed=False, finality="confirming", confirmations=11)
     validator = result(confirmed=True, finality="final", confirmations=13)
     assert mod.results_agree(leader, validator, plan(min_confirmations=12, drift=10)) is False
@@ -222,8 +220,7 @@ def test_zero_drift_tolerance_makes_the_verdict_exact(mod):
 
 def test_mined_state_change_requires_new_consensus(mod):
     """The leader saw it pending, the validator saw it land one block later.
-    The identity digest is shared because identity excludes settlement, which
-    is exactly why this case is survivable."""
+    Identity agrees, but the mined/settlement decision must rotate."""
     leader = result(mined=False, confirmed=False, status="pending", confirmations=0, settlement_digest="")
     validator = result(mined=True, confirmed=False, status="success", confirmations=1)
     assert mod.results_agree(leader, validator, plan(drift=10)) is False
@@ -238,8 +235,7 @@ def test_pending_against_deeply_mined_fails(mod):
 
 
 def test_pending_state_cannot_skip_settlement_binding(mod):
-    """A pending reading has no settlement to compare, so requiring a match
-    would fail every legitimate race."""
+    """Pending cannot bypass comparison of later-consumed settlement facts."""
     leader = result(mined=False, confirmed=False, status="pending", confirmations=0, settlement_digest="")
     validator = result(mined=True, confirmed=False, status="success", confirmations=2, settlement_digest="0x" + "ff" * 32)
     assert mod.results_agree(leader, validator, plan(drift=10)) is False

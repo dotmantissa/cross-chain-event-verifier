@@ -17,9 +17,10 @@ genvm-lint check contracts/examples/cross_chain_release_gate.py
 genvm-lint typecheck contracts/examples/cross_chain_release_gate.py
 python scripts/prepare_direct_sdk.py
 pytest -p no:gltest tests/direct -q
+pytest -p no:gltest tests/gate -q
 ```
 
-The direct-test command disables the network configuration plugin (`gltest`) while retaining `gltest_direct`. This avoids loading live account settings or clearing integration artifacts. CI runs these checks without account credentials. Direct tests cover normalization, decoding, assertions, digests, aggregation, saved validator callbacks, registry governance, access control, cache expiry and reorg invalidation. They do not replace real GenVM execution. The SDK allows one contract class in a direct-mode process; the release gate's real cross-contract behavior is tested on a network.
+The direct-test command disables the network configuration plugin (`gltest`) while retaining `gltest_direct`. This avoids loading live account settings or clearing integration artifacts. CI runs these checks without account credentials. Direct tests cover normalization, decoding, assertions, digests, aggregation, saved validator callbacks, registry governance, access control, cache expiry and reorg invalidation. They do not replace real GenVM execution. The SDK allows one contract class in a direct-mode process; the gate logic/storage tests run in a separate process; real finalized message scheduling and current-state reads run on a network.
 
 `prepare_direct_sdk.py` prepares GenVM release `v0.2.16`, which contains the contract's pinned runner and its exact SDK dependencies. On a fresh machine, `genlayer-test` 0.29.2 otherwise asks the latest release for an asset filename that newer releases no longer provide. The bootstrap uses the tool's standard downloader and extractor; contract runner hashes remain unchanged.
 
@@ -31,7 +32,7 @@ cp .env.example .env
 gltest tests/integration -v -s --network studionet -x
 ```
 
-This suite uses real sources, model calls, consensus and finalized cross-contract reads. It checks the historical Ethereum USDT transaction against fixed sender/recipient/amount/block/nonce/index fixtures, wrong event assertions, explicit absence, malformed inputs, claim match/mismatch, replay protection, cancellation and strict event policy.
+This suite uses real sources, model calls, consensus, finalized message delivery and current-state veto reads. It checks the historical Ethereum USDT transaction against fixed sender/recipient/amount/block/nonce/index fixtures, wrong event assertions, explicit absence, malformed inputs, claim match/mismatch, replay protection, cancellation and strict event policy.
 
 Session-scoped deployments keep shared-host request costs down. `deployments/studionet.pending.json` stores transaction IDs before waiting, plus source hashes, constructor arguments and finalized addresses after successful execution. A restart reuses only a matching deployment. `CCEV_DEPLOYMENTS_FILE` chooses another checkpoint. Never promote a checkpoint as a validated deployment until contract execution and intended live behavior pass.
 
@@ -39,22 +40,13 @@ StudioNet reads use `scripts/transport.py` for raw calldata. During validation o
 
 Polling uses 10-second intervals with bounded retries. Throttle heavy live runs; a failed external request or hosted limit is not evidence that the external transaction is absent. Hosted finalization can take minutes. Preserve the transaction ID and inspect it rather than blindly resubmitting.
 
-The typed helper and integration fixtures retry transport failures on read-only RPC methods up to three times. Transaction submissions and contract execution errors are never retried automatically. Submitted integration hashes are journaled before polling, including when receipt retrieval is interrupted.
+SDK requests bound connect/response waits to 5/30 seconds. The typed helper and integration fixtures retry transport failures on read-only RPC methods up to three times. Transaction submissions and contract execution errors are never retried automatically. Submitted integration hashes are journaled before polling, including when receipt retrieval is interrupted.
 
-### Hosted finalized cross-contract read limitation
+### Finalized-message recovery
 
-On 2026-10-10 the default gate's first cross-contract assertion normalization finalized with execution `ERROR` and a VM `timeout`. The [Studio host's storage handler](https://github.com/genlayerlabs/genlayer-studio/blob/d7272a9499f119a8f0a18ad361837054e4930f75/backend/node/genvm/base.py#L637) explicitly rejects `StorageType.LATEST_FINAL`. This is consistent with the failure; the exact hosted backend revision is not exposed. The same gate source successfully performed cross-contract normalization and settlement in a separate deployment with `allow_non_final=True`.
+The previous default consumer failed on hosted finalized inter-contract storage reads. The revised gate requires positive evidence through `emit(on="finalized")`; supported current-state reads only veto that evidence. It has no unsafe non-final positive mode. See the [GenLayer finalized-message semantics](https://docs.genlayer.com/developers/intelligent-contracts/features/interacting-with-intelligent-contracts).
 
-To reproduce that explicit diagnostic, use a separate deployment and evidence checkpoint:
-
-```bash
-CCEV_GATE_NONFINAL_DIAGNOSTIC=1 \
-CCEV_DEPLOYMENTS_FILE=deployments/studionet.nonfinal.pending.json \
-CCEV_EVIDENCE_FILE=deployments/studionet.nonfinal.evidence.pending.json \
-gltest tests/integration/test_release_gate.py -v -s --network studionet -x
-```
-
-The diagnostic changes the deployed test gate's owner setting after deployment. It does not validate finalized cross-contract storage selection. The standard suite never enables it automatically. Validate the default gate on a host supporting finalized inter-contract reads before using it for value-sensitive authorization. A reused gate preserves consumed transactions; the replay test checks the existing settled condition and attempts a new replay rather than clearing that history.
+Live tests follow and journal both actual parent and child transaction IDs to successful finalization. Use a fresh gate checkpoint for every full lifecycle validation run. A previously settled checkpoint must not substitute for a new settlement under the current source; the suite explicitly refuses that shortcut. On interruption, inspect the saved IDs and state, then resume the relevant test safely. A new gate does not inherit prior consumed-transaction history.
 
 ## Deploy or interact independently
 
@@ -70,7 +62,7 @@ python3 scripts/ccev.py call 0xYOUR_VERIFIER_ADDRESS get_config
 python3 scripts/ccev.py receipt 0xYOUR_TRANSACTION_HASH
 ```
 
-Deployment checkpoints are reused only for matching network, source and arguments. Call commands read finalized storage by default (`--state non-final` is explicit). Write/deploy commands wait for successful finalized execution. A `Transaction:` line is printed before waiting; save it to recover an interrupted write. Keys are loaded from `.env` or the environment and never from command-line options. For ABI `Address` parameters, use an explicit `{"$address":"0x..."}` argument tag; ordinary JSON strings remain strings.
+Deployment checkpoints are reused only for matching network, source and arguments. `deploy --retry-failed` submits again only when a matching checkpoint records failed execution; it never resubmits an unresolved transaction automatically. Call commands read finalized storage by default (`--state non-final` is explicit). Write/deploy commands wait for successful finalized execution. A `Transaction:` line is printed before waiting; save it to recover an interrupted write. Keys are loaded from `.env` or the environment and never from command-line options. For ABI `Address` parameters, use an explicit `{"$address":"0x..."}` argument tag; ordinary JSON strings remain strings.
 
 `genlayer network set studionet`, `genlayer call ADDRESS get_config`, and `genlayer receipt HASH --stdout --stderr` remain useful for CLI diagnostics. `ACCEPTED` or `FINALIZED` alone does not mean contract execution succeeded. Inspect the execution result; failed execution applies no state changes.
 
@@ -78,6 +70,6 @@ Deployment checkpoints are reused only for matching network, source and argument
 
 Contracts are immutable: redeploy changed source, run live validation, then repoint consumers with `set_verifier`. The gate's owner can perform this migration, but a new gate does not inherit the previous deployment's consumed-transaction history. Preserve replay protection deliberately in applications migrating authorizations.
 
-Update source operators and confirmation policy based on each chain's settlement assumptions. Set a query budget that can reach quorum. Removing a source never lowers quorum automatically. Existing cache policy/evidence stays in effect until refresh or expiry; changing TTLs affects newly written records.
+Update source operators and confirmation policy based on each chain's settlement assumptions. Set a query budget that can reach quorum. Removing a source never lowers quorum automatically. Policy changes increment the global revision and veto cached positives. Pause, chain disablement and explicit `revoke_transaction` also veto them. Refresh under the current policy before republishing gate evidence. Purge bounds inspected records, including claims and proofs; transaction epochs remain monotonic.
 
 The local `TASKS.md` recovery checklist is excluded through Git metadata and is never committed. It records unfinished work, operation IDs and verification evidence without credentials. Published manifests contain only addresses, transaction IDs, source hashes, public test fixtures and validation summaries. `.env`, pending checkpoints and runtime artifacts are ignored.

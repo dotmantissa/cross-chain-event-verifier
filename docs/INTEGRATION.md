@@ -40,22 +40,23 @@ Event proofs never invoke an LLM. Known decoders distinguish ERC-20 versus ERC-7
 
 ## Release gate
 
-Deploy `CrossChainReleaseGate(verifier_address, True)`. Strict confirmation is enabled, and verifier reads use `LATEST_FINAL` by default.
+Deploy `CrossChainReleaseGate(verifier_address, True)`. Its default authorization uses authenticated finalized messages and an exact current-state veto. This works without depending on the host's finalized inter-contract storage-read implementation.
 
-1. A sponsor calls `create_condition(condition_id, chain_id, assertion, description, beneficiary, deadline)`. The verifier canonicalizes a nonempty assertion. An empty assertion requires transaction confirmation only. A deadline of 0 disables expiry.
-2. Anyone calls the verifier's `prove_event` or `verify_transaction` and waits for successful finalized execution.
-3. Anyone can preview `check_readiness(condition_id, tx_hash)` and call `settle(condition_id, tx_hash)`.
-4. Downstream contracts read `is_settled(condition_id)` from finalized gate state before acting.
+1. The owner calls `create_condition(condition_id, chain_id, assertion, description, beneficiary, deadline)`. Canonical nonempty assertions bind event criteria. An empty assertion requires transaction confirmation only. Deadline 0 disables expiry.
+2. Anyone calls `publish_to_gate(chain_id, tx_hash, assertion, gate_address)` on the verifier. This verifies/proves as needed and emits a snapshot with `on="finalized"`.
+3. Follow the parent transaction to `FINALIZED` with successful execution, then obtain the emitted child ID with `get_triggered_transaction_ids` and wait for its successful finalization. Parent finality alone does not establish delivery.
+4. Preview `check_readiness`, then call `settle`. Current verifier evidence must exactly match the delivered snapshot. If refreshed, revoked, expired or invalidated by policy, refresh/reprove and publish again.
+5. Downstream consumers wait for this gate settlement's successful finalization before irreversible effects.
 
-An event condition requires both its exact proof and strict confirmation when `require_strict` is enabled. A transaction settles at most one condition per chain in a given gate. EVM hashes normalize casing and prefix; Solana signatures preserve base58 casing. Replay protection is scoped to the gate deployment, so a new gate or a separate application must deliberately preserve its own consumed-deposit history.
+The current-state read uses `LATEST_NON_FINAL` solely to veto old delivered evidence; positive provisional state cannot independently authorize release. Event conditions also enforce strict confirmation unless the owner explicitly changes strict policy. A transaction settles at most one condition per chain in a gate. EVM hash casing normalizes; Solana signature casing is preserved. Migration to a new gate requires application replay-history preservation.
 
-Sponsors or the gate owner can cancel unsettled conditions. Only the owner can change verifier address, strict policy or non-final-read policy. Conditions retain the beneficiary selected at creation; `settle` records the submitting caller separately. The contract does not transfer assets.
+Only owners register conditions, preventing arbitrary sponsors from squatting IDs or consuming unrelated deposits. Sponsor/owner cancellation is supported. Owner pause vetoes new conditions and settlement. Switching verifiers namespaces away old snapshots and rejects the old verifier's messages. Conditions retain their beneficiary; settlement caller is recorded separately. The contract holds no funds.
 
-For escrow/deposit applications, bind a condition to the expected beneficiary and transfer criteria before settlement. A condition requiring only transaction existence establishes no payment amount, token or recipient requirement.
+Bind chain, emitter, party addresses, amount and beneficiary before settlement. A transaction-only condition imposes no payment requirements. `data_contains` is a substring match: verify that the selected word and event layout uniquely identify the intended amount.
 
 ## Natural-language claims
 
-`verify_claim` independently runs a model on each validator against the normalized transaction and decoded summaries. Verdicts are `match`, `mismatch` or `indeterminate`. The model cannot establish transaction existence or confirmation. `is_claim_verified` additionally requires a confirmed, fresh current transaction record.
+`verify_claim` independently runs a model on each validator against the normalized transaction and decoded summaries. Verdicts are `match`, `mismatch` or `indeterminate`. The model cannot establish transaction existence or confirmation. `is_claim_verified` additionally requires a confirmed, fresh transaction under current policy and the exact adjudicated transaction epoch. Every refresh invalidates earlier claims. Mutable exact confirmation counts and unsupported SOL/SPL transfer amounts cannot establish claims.
 
 Use exact base units and explicit addresses in claims. Human-readable token amounts can require decimals or context the verifier does not fetch. Model confidence is an explanatory score, not a cryptographic probability. Prefer structured assertions for consequential releases.
 
@@ -71,3 +72,12 @@ python3 scripts/ccev.py write VERIFIER prove_event \
 ```
 
 Replace placeholders with valid data. The helper reads finalized state by default and waits for finalized successful writes. StudioNet read requests use raw calldata because its legacy RLP read decoder rejects some long arguments. The installed `genlayer` CLI auto-coerces numeric/hex arguments; use the helper for string chain IDs, hashes and JSON assertion strings.
+
+Publish a proof to a gate with the typed helper:
+
+```bash
+python3 scripts/ccev.py write VERIFIER publish_to_gate \
+  --args-json '["1","0xYOUR_64_HEX_CHARACTER_HASH","{\"address\":\"0xYOUR_TOKEN\"}",{"$address":"0xYOUR_GATE"}]'
+```
+
+Follow the child transaction as described above before settlement.

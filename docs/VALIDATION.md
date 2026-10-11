@@ -1,4 +1,7 @@
-# Validation record — 2026-10-10
+# Previous validation record — superseded source, 2026-10-10
+
+The following evidence applies to the previous deployment only. The audit-fix source is being freshly deployed and validated; do not treat these old consumer diagnostics as evidence for the revised finalized-message flow.
+
 
 The verifier's deployed source matches the local contract byte for byte. All 24 live verifier cases passed on that source, using real Ethereum archive RPC/explorer requests, independent validator execution and hosted LLM adjudication. The release gate's consumer behavior passed six live cases on a separate deployment explicitly configured for non-final cross-contract reads. Default finalized cross-contract reads remain blocked by a hosted VM timeout.
 
