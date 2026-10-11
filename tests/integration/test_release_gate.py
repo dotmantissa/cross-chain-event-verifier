@@ -140,6 +140,49 @@ def test_refresh_requires_new_finalized_delivery(release_gate, verifier, conditi
     rejected(release_gate.settle(args=[condition_id,TX]),"vetoes snapshot")
     publish_finalized(verifier,release_gate,chain,TX)
     assert release_gate.check_readiness(args=[condition_id,TX]).call()["ready"]
+    transact(verifier.revoke_transaction(args=[chain,TX]))
+    assert not release_gate.check_readiness(args=[condition_id,TX]).call()["ready"]
+    rejected(release_gate.settle(args=[condition_id,TX]),"vetoes snapshot")
+    publish_finalized(verifier,release_gate,chain,TX)
+    assert release_gate.check_readiness(args=[condition_id,TX]).call()["ready"]
     transact(release_gate.settle(args=[condition_id,TX]))
     assert release_gate.is_settled(args=[condition_id]).call()
     transact(verifier.set_chain_enabled(args=[chain,False]))
+
+
+def test_outsider_cannot_create_condition_on_live_gate(release_gate, condition_id):
+    from genlayer_py import create_account,create_client
+    from genlayer_py.chains import studionet
+    from conftest import journal_receipts
+    from scripts.transport import install_rpc_read_retries,install_studionet_read_compat
+    client=install_rpc_read_retries(install_studionet_read_compat(create_client(chain=studionet,account=create_account())))
+    journal_receipts(client)
+    tx_id=client.write_contract(address=str(release_gate.address),function_name="create_condition",
+        args=[condition_id,ETH,"","Untrusted registration",CalldataAddress(release_gate.get_config().call()["owner"]),0])
+    receipt=client.wait_for_transaction_receipt(transaction_hash=tx_id,status=TransactionStatus.FINALIZED,interval=10000,retries=90)
+    assert not tx_execution_succeeded(receipt),receipt
+    leader=receipt.get("consensus_data",{}).get("leader_receipt",[])[0]
+    decoded=base64.b64decode(leader.get("result","")).decode("utf-8",errors="replace")
+    assert "owner only" in decoded,receipt
+    assert not release_gate.get_condition(args=[condition_id]).call()["found"]
+
+
+def test_pause_vetoes_live_gate_settlement(release_gate, condition_id):
+    create(release_gate,condition_id)
+    transact(release_gate.set_paused(args=[True]))
+    try:
+        assert not release_gate.check_readiness(args=[condition_id,ABSENT_TX]).call()["ready"]
+        rejected(release_gate.settle(args=[condition_id,ABSENT_TX]),"gate is paused")
+    finally:
+        transact(release_gate.set_paused(args=[False]))
+    transact(release_gate.cancel_condition(args=[condition_id]))
+
+
+def test_restore_published_ethereum_proof_under_current_policy(release_gate,verifier):
+    """Temporary registry tests invalidate generations; restore live canonical evidence."""
+    assertion=transfer_assertion()
+    publish_finalized(verifier,release_gate,ETH,TX,assertion)
+    assert verifier.is_verified_strict(args=[ETH,TX]).call()
+    assert verifier.is_event_proven(args=[ETH,TX,assertion]).call()
+    config=release_gate.get_config().call()
+    assert config["require_strict"] and not config["paused"]
