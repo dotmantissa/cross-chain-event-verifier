@@ -52,4 +52,4 @@ This is a consensus oracle, not a cryptographic light client. Registry governanc
 
 Natural-language claims can be indeterminate. Exact mutable confirmation counts, missing token decimals and off-chain context are unsupported claim facts. Refresh invalidates old claims; source-policy changes, pause, disablement and explicit revocation veto cached positives. Use exact structured criteria for consequential releases, and wait for both the delivery and gate settlement to finalize successfully.
 
-[Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Integration](docs/INTEGRATION.md) · [Operations](docs/OPERATIONS.md) · [Validation](docs/VALIDATION.md)
+[Audit remedies](docs/AUDIT.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Integration](docs/INTEGRATION.md) · [Operations](docs/OPERATIONS.md) · [Validation](docs/VALIDATION.md)

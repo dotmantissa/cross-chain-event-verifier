@@ -1,0 +1,172 @@
+{
+  "network": "studionet",
+  "rpc_url": "https://studio.genlayer.com/api",
+  "chain_id": 61999,
+  "recorded_at": "2026-10-10T22:00:37.821538+00:00",
+  "runner": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
+  "contract_source_commit": "140c397ff280eb5fcc152584d6ea1d73666d8d73",
+  "contracts": {
+    "CrossChainEventVerifier": {
+      "address": "0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38",
+      "deployment_transaction": "0x926baebbeb4b3407ec52fc9d36b883157347c40a44e47cec9214f54aba7ec691",
+      "deployment_status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "source": "contracts/cross_chain_event_verifier.py",
+      "source_sha256": "7cafcc3d39a71d5089faf13e023dda3dc3561c7cd629eae3b4844e944f8ab031",
+      "constructor_arguments": [
+        true
+      ],
+      "remote_source_matches": true,
+      "constructor_argument_types": [
+        "bool"
+      ]
+    },
+    "CrossChainReleaseGate": {
+      "address": "0x0E3143A1Db3373cf5E45F1c417249587506255Eb",
+      "deployment_transaction": "0xa5ea2343317ca63db3eb8c95906b66d06f79e715924d8a2feea35d8956d1707f",
+      "deployment_status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "source": "contracts/examples/cross_chain_release_gate.py",
+      "source_sha256": "e8325747be134c559614c9186e0ab972d9764c1f5dc8e142c239182d2ec8e18e",
+      "constructor_arguments": [
+        {
+          "$address": "0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38"
+        },
+        true
+      ],
+      "remote_source_matches": true,
+      "require_strict": true,
+      "allow_non_final": false,
+      "constructor_argument_types": [
+        "Address",
+        "bool"
+      ]
+    },
+    "CrossChainReleaseGateNonFinalDiagnostic": {
+      "address": "0x41aCD88c1226982d53FaF35DCF81f82BAa169a1C",
+      "deployment_transaction": "0x085d73313df774f7b619ef2bdc8717e23604f51de1b097255ae60d7b738ea08b",
+      "deployment_status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "source": "contracts/examples/cross_chain_release_gate.py",
+      "source_sha256": "e8325747be134c559614c9186e0ab972d9764c1f5dc8e142c239182d2ec8e18e",
+      "constructor_arguments": [
+        {
+          "$address": "0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38"
+        },
+        true
+      ],
+      "remote_source_matches": true,
+      "allow_non_final": true,
+      "purpose": "Explicit hosted diagnostic; finalized inter-contract storage reads are not validated",
+      "require_strict": true,
+      "constructor_argument_types": [
+        "Address",
+        "bool"
+      ]
+    }
+  },
+  "validation": {
+    "direct_tests_passed": 544,
+    "direct_sdk_release": "v0.2.16",
+    "both_contracts_lint_and_typecheck": "passed",
+    "live_verifier_tests_passed": 24,
+    "live_verifier_scope": "Historical Ethereum mainnet transfer, source/receipt quorum, event assertions, absence, inputs, helper views and independent LLM adjudication",
+    "default_finalized_gate_read": "blocked: FINALIZED transaction with VM timeout; hosted finalized inter-contract storage selection is not validated",
+    "ci": {
+      "implementation_commit": "440fd602515837e8bec02be428ba8457ebbf1256",
+      "result": "success",
+      "url": "https://github.com/dotmantissa/cross-chain-event-verifier/actions/runs/38089204623"
+    },
+    "other_registered_chains": "adapter/direct coverage only; no live transaction validation claimed",
+    "strict_regression_chain_id": "band-adb5b0ae1bc9",
+    "diagnostic_gate_tests_passed": 6,
+    "diagnostic_gate_read_policy": "latest-non-final, explicitly enabled",
+    "strict_policy_restored": true,
+    "temporary_regression_chains_disabled": true
+  },
+  "ethereum_fixture": {
+    "chain_id": "1",
+    "transaction_hash": "0x2bb8f36504a329b8d8eb4031a895aa952e1007c24843a531d3bf29093872f86a",
+    "block_number": 16777216,
+    "transaction_index": 24,
+    "nonce": 369105,
+    "token": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "sender": "0x23f4569002a5a07f0ecf688142eeb6bcd883eef8",
+    "recipient": "0x09b6b873f9a7e0f4dcb2f4aadb6be39912aa1b30",
+    "amount_base_units": "100000000"
+  },
+  "evidence": {
+    "ethereum_verification": {
+      "transaction_hash": "0x7fec8853e20a060ed9be9ade02b3c628d90872685ff6b58710ff5a23491673f4",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3
+    },
+    "exact_transfer_proof": {
+      "transaction_hash": "0x42696b9250faa7e0710c743dc146f19c43f483e9cf5ad7af599d4e149b7637cc",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3
+    },
+    "matching_claim": {
+      "transaction_hash": "0x3ca180b39412688c27700a18162bde158cfe4f3dc94350bd8cd49eed077c1f28",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3
+    },
+    "mismatching_claim": {
+      "transaction_hash": "0x285c9c8a74d0b0367a2194182c01fe16a22c8c2895e2969374e35c47dba95609",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3
+    },
+    "diagnostic_gate_settlement": {
+      "transaction_hash": "0x70569a014db18b53021b423d097589723c79a3d626c234cb24ba9fc16d0c92a3",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 4
+    },
+    "diagnostic_gate_replay_rejection": {
+      "transaction_hash": "0x40df3e3933f2d1050ba2aea5130ac643bcdb1c6690808fef965d6c5f1cd7aecc",
+      "status": "FINALIZED",
+      "execution_result": "ERROR",
+      "agree_votes": 4
+    },
+    "finalized_read_timeout": {
+      "transaction_hash": "0x07220da88c445f081968b4bd1eefaa76b4c18c11676af0e00d578ac62bf3f74b",
+      "status": "FINALIZED",
+      "execution_result": "ERROR",
+      "agree_votes": 0
+    },
+    "strict_band_proof": {
+      "transaction_hash": "0x53f60b973f95ea15b4df6222921ecc41b63bd2ee087f39983217fbef3d9a5651",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3
+    },
+    "strict_policy_rejection": {
+      "transaction_hash": "0x1437cd783ef35ba40b07cd3808783c72d773226c7f75921e9d3887b654b6dfe8",
+      "status": "FINALIZED",
+      "execution_result": "ERROR",
+      "agree_votes": 3
+    },
+    "strict_policy_permissive_settlement": {
+      "transaction_hash": "0xfb43266c7858746445c7bb66c34ae90a5e5a34736c95f32034737f6661c36e70",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 4
+    },
+    "strict_policy_restored": {
+      "transaction_hash": "0x4dac1c8cf42e6acffdb0963a3d03fffba9ea2accbff3223f40c6f7b80a9f2eb2",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 4
+    },
+    "strict_regression_chain_disabled": {
+      "transaction_hash": "0x2b510eefe73cca156b121e8c6cdd62f6bb7821fdc8fb1e48c71238269acf323c",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3
+    }
+  }
+}

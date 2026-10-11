@@ -1,24 +1,29 @@
-# Previous validation record — superseded source, 2026-10-10
+# Validation record — audit fixes, 2026-10-11
 
-The following evidence applies to the previous deployment only. The audit-fix source is being freshly deployed and validated; do not treat these old consumer diagnostics as evidence for the revised finalized-message flow.
-
-
-The verifier's deployed source matches the local contract byte for byte. All 24 live verifier cases passed on that source, using real Ethereum archive RPC/explorer requests, independent validator execution and hosted LLM adjudication. The release gate's consumer behavior passed six live cases on a separate deployment explicitly configured for non-final cross-contract reads. Default finalized cross-contract reads remain blocked by a hosted VM timeout.
+Both contracts were redeployed from source commit `570c912`. Remote byte-for-byte source checks, deployment execution results, safe gate configuration and current Ethereum verification were checked after the live run. The [manifest](../deployments/studionet.json) records addresses, hashes, actual parent/child transaction IDs and execution evidence. [Audit findings and remedies](AUDIT.md) describe what changed.
 
 | Check | Result |
 | --- | --- |
 | Both contracts: GenVM lint and typecheck | Passed locally and in CI |
-| Direct contract, adversarial and transport tests | 544 passed |
-| Live verifier cases | 24 passed across filtered runs on identical source |
-| Diagnostic gate cases | 6 passed across filtered runs with `allow_non_final=True` |
-| Default gate configuration | Strict policy enabled, finalized reads selected |
-| Default gate cross-contract read | Finalized with execution ERROR / VM timeout |
-| Published contracts' remote source hashes | Match local source |
+| Direct verifier/adversarial/transport cases | 576 passed |
+| Separate direct release-gate cases | 16 passed |
+| Live verifier cases | 24 passed |
+| Distinct live release-gate cases | 10 passed across identical-source deployments |
+| Positive consumer authorization | Actual finalized-message delivery, followed by current-state veto check |
+| Ethereum event settlement and replay | New settlement succeeded; same-condition and second-condition replay refused |
+| Published remote source | All three deployment sources match local files byte for byte |
+| Governance restoration | Strict policy enabled, gates unpaused, temporary test chains disabled |
 
-[Deployment addresses, source hashes and finalized execution evidence](../deployments/studionet.json) are recorded separately from ignored recovery checkpoints. [CI](https://github.com/dotmantissa/cross-chain-event-verifier/actions/runs/38089204623) passed on implementation/tooling commit `440fd60`; the publication commit adds documentation and deployment evidence.
+[CI passed on the exact contract source commit](https://github.com/dotmantissa/cross-chain-event-verifier/actions/runs/38131490592). The subsequent integration-test commit adds live access-control, pause, explicit revocation and canonical-proof restoration checks without changing either deployed contract.
 
-The live verifier cases check the historical Ethereum transaction's sender, recipient, block, transaction index, nonce, selector and ERC20 log amount; multiple identity and settlement sources; confirmation depth; exact event proof, wrong amount and wrong recipient; quorum-based absence and expiry; invalid inputs; canonicalization/decoding views; and matching/mismatching natural-language claims. The direct suite covers the other adapters and adversarial equivalence/cache/transport cases. No live transaction validation is claimed for the other registered chains.
+The full live run had 33 passing cases and one RPC transport error while polling an already submitted publication. Read-only recovery established that this parent and its actual emitted child both finalized successfully. No unresolved write was resubmitted. The remaining event settlement/replay case then passed in a focused run against a fresh, identical-source gate. This is 34 distinct passing cases across runs, rather than a claim that one uninterrupted full run passed.
 
-The diagnostic consumer cases check successful settlement, case-normalized EVM replay prevention, unverified transaction refusal, cancellation, safe missing-condition reads and strict confirmation policy. The strict-policy regression creates a real event proof inside a deliberately wide confirmation band: `is_event_proven` is true while `is_verified_strict` is false. The strict gate refuses it; an explicit owner policy change permits settlement, after which strict policy is restored and the temporary chain is disabled.
+`CrossChainReleaseGate` in the manifest is the fresh deployment used for the complete event lifecycle. `CrossChainReleaseGateLifecycleValidation` is the identical-source deployment used for the other nine gate cases. Positive authorization requires the authenticated finalized callback on both; neither has an unsafe non-final positive mode. The historic diagnostic consumer and failed finalized-storage-read deployment are retained only in the [superseded manifest](../deployments/studionet-2026-10-10.superseded.json).
 
-The default gate's failed call applied no condition state changes. The Studio source rejects finalized storage selection in its host handler; this is consistent with the timeout, but the deployed backend revision is not exposed. Successful non-final diagnostics do not establish finalized cross-contract safety. See [operations and the pinned upstream source reference](OPERATIONS.md#hosted-finalized-cross-contract-read-limitation). Validate the default policy on a supporting host before value-sensitive use. The alternative Bradbury account had zero balance and its intelligent-contract RPC was unreachable from this environment, so no Bradbury deployment was attempted.
+Live verifier checks cover a historical Ethereum USDT transfer's exact sender, recipient, block, transaction index, nonce, selector and amount; corroborated identity/settlement evidence; confirmation policy; correct and incorrect event assertions; quorum-based absence; invalid inputs; canonicalization/decoding views; and matching/mismatching natural-language claims under independent validator execution.
+
+Live gate checks follow actual publication and emitted-child IDs to successful finalization, refresh by polling its stored transaction ID, read updated chain state, veto old delivery, republish, revoke and republish again, then settle. They also cover strict versus permissive confirmation policy, an actual outsider-account registration refusal, pause, cancellation, missing conditions and unverified transactions. Temporary registry tests invalidate prior generations; canonical Ethereum proof is refreshed and delivered under the restored policy afterward.
+
+Direct tests exercise conflicting validator decisions, all consumed fact commitments, Solana log-boundary/case collisions, malformed-source fallback, v0 loaded addresses, unknown native values, cache/policy/epoch invalidation, bounded cleanup, transport and rollback-sensitive gate logic. These controlled tests do not demonstrate a live contested appeal or every remote-chain reorganization. The finalized-message tests demonstrate successful scheduling after the source finalization window, not an adversarial appeal being submitted and reversed.
+
+Only Ethereum has live transaction evidence here. Other registered chains remain experimental configurations with direct adapter coverage. External source quorum is not a cryptographic inclusion proof; depth-based finality is application policy. The reference consumer records authorization, holds no funds and scopes consumed-transaction history to its deployment. Mission-specific acceptance cannot be guaranteed by these checks.

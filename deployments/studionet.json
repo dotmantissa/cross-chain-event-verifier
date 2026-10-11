@@ -1,89 +1,291 @@
 {
-  "network": "studionet",
-  "rpc_url": "https://studio.genlayer.com/api",
-  "chain_id": 61999,
-  "recorded_at": "2026-10-10T22:00:37.821538+00:00",
-  "runner": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
-  "contract_source_commit": "140c397ff280eb5fcc152584d6ea1d73666d8d73",
+  "recorded_at": "2026-10-11T14:51:28.109356+00:00",
   "contracts": {
     "CrossChainEventVerifier": {
-      "address": "0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38",
-      "deployment_transaction": "0x926baebbeb4b3407ec52fc9d36b883157347c40a44e47cec9214f54aba7ec691",
+      "address": "0x0a2efBA1CFD044372A30A2b45B8a1e2ac82C5392",
+      "deployment_transaction": "0xf10e1b4551c9c7fd371d88e8f3bfd72e1872fbcd334ae97ba2b2dcc8c2ed7ca7",
       "deployment_status": "FINALIZED",
       "execution_result": "SUCCESS",
       "source": "contracts/cross_chain_event_verifier.py",
-      "source_sha256": "7cafcc3d39a71d5089faf13e023dda3dc3561c7cd629eae3b4844e944f8ab031",
+      "source_sha256": "5e613a1c244664927f177447fa5a5c66a6c476ca150365624e839e444df81ca6",
       "constructor_arguments": [
         true
       ],
-      "remote_source_matches": true,
       "constructor_argument_types": [
         "bool"
-      ]
+      ],
+      "remote_source_matches": true,
+      "config_at_validation": {
+        "chain_count": 9,
+        "confidence_tolerance": 30,
+        "max_decoded_events_stored": 24,
+        "max_logs_digested": 1024,
+        "max_sources": 5,
+        "owner": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+        "paused": false,
+        "policy_revision": 5,
+        "source_kinds": [
+          "evm_jsonrpc",
+          "blockscout_v2",
+          "etherscan_v2",
+          "solana_jsonrpc"
+        ],
+        "submitters_restricted": false,
+        "ttl_absent": 180,
+        "ttl_confirming": 600,
+        "ttl_final": 2592000
+      }
     },
     "CrossChainReleaseGate": {
-      "address": "0x0E3143A1Db3373cf5E45F1c417249587506255Eb",
-      "deployment_transaction": "0xa5ea2343317ca63db3eb8c95906b66d06f79e715924d8a2feea35d8956d1707f",
+      "address": "0x44C72a8dE5E019C0D48E2a44281c49c52Ff64178",
+      "deployment_transaction": "0x7aa967fad731c20e7eac72f002649e9a4a022bf8ac604927aed9240fcf29b4ab",
       "deployment_status": "FINALIZED",
       "execution_result": "SUCCESS",
       "source": "contracts/examples/cross_chain_release_gate.py",
-      "source_sha256": "e8325747be134c559614c9186e0ab972d9764c1f5dc8e142c239182d2ec8e18e",
+      "source_sha256": "c17898ac4f1984b4ae152342ce3636b7362cd3657c1dc08faaa0e8a71ddc2299",
       "constructor_arguments": [
-        {
-          "$address": "0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38"
-        },
+        "0x0a2efBA1CFD044372A30A2b45B8a1e2ac82C5392",
         true
       ],
-      "remote_source_matches": true,
-      "require_strict": true,
-      "allow_non_final": false,
       "constructor_argument_types": [
         "Address",
         "bool"
-      ]
+      ],
+      "remote_source_matches": true,
+      "config_at_validation": {
+        "allow_non_final": false,
+        "condition_count": 2,
+        "evidence_policy": "finalized-message-with-current-veto",
+        "owner": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+        "paused": false,
+        "require_strict": true,
+        "verifier": "0x0a2efBA1CFD044372A30A2b45B8a1e2ac82C5392"
+      }
     },
-    "CrossChainReleaseGateNonFinalDiagnostic": {
-      "address": "0x41aCD88c1226982d53FaF35DCF81f82BAa169a1C",
-      "deployment_transaction": "0x085d73313df774f7b619ef2bdc8717e23604f51de1b097255ae60d7b738ea08b",
+    "CrossChainReleaseGateLifecycleValidation": {
+      "address": "0x6E4543550e06B5626b1dD8481918a3F62f8dd122",
+      "deployment_transaction": "0xf3f41c0c084aab5052047cdecea33f7a5aff6f1ae43180ab1e8b5d21f65d6fbc",
       "deployment_status": "FINALIZED",
       "execution_result": "SUCCESS",
       "source": "contracts/examples/cross_chain_release_gate.py",
-      "source_sha256": "e8325747be134c559614c9186e0ab972d9764c1f5dc8e142c239182d2ec8e18e",
+      "source_sha256": "c17898ac4f1984b4ae152342ce3636b7362cd3657c1dc08faaa0e8a71ddc2299",
       "constructor_arguments": [
-        {
-          "$address": "0x90dc5092a0CDCEDD5Ed61Cddda87F2C54A626f38"
-        },
+        "0x0a2efBA1CFD044372A30A2b45B8a1e2ac82C5392",
         true
       ],
-      "remote_source_matches": true,
-      "allow_non_final": true,
-      "purpose": "Explicit hosted diagnostic; finalized inter-contract storage reads are not validated",
-      "require_strict": true,
       "constructor_argument_types": [
         "Address",
         "bool"
-      ]
+      ],
+      "remote_source_matches": true,
+      "config_at_validation": {
+        "allow_non_final": false,
+        "condition_count": 6,
+        "evidence_policy": "finalized-message-with-current-veto",
+        "owner": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+        "paused": false,
+        "require_strict": true,
+        "verifier": "0x0a2efBA1CFD044372A30A2b45B8a1e2ac82C5392"
+      }
     }
   },
-  "validation": {
-    "direct_tests_passed": 544,
-    "direct_sdk_release": "v0.2.16",
-    "both_contracts_lint_and_typecheck": "passed",
-    "live_verifier_tests_passed": 24,
-    "live_verifier_scope": "Historical Ethereum mainnet transfer, source/receipt quorum, event assertions, absence, inputs, helper views and independent LLM adjudication",
-    "default_finalized_gate_read": "blocked: FINALIZED transaction with VM timeout; hosted finalized inter-contract storage selection is not validated",
-    "ci": {
-      "implementation_commit": "440fd602515837e8bec02be428ba8457ebbf1256",
-      "result": "success",
-      "url": "https://github.com/dotmantissa/cross-chain-event-verifier/actions/runs/38089204623"
+  "evidence": {
+    "ethereum_verification": {
+      "transaction_hash": "0xf14275a7f56d85c5082da4d9b2a4161bbcce4763d72cc4e486eaa4b1edde4237",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3,
+      "triggered_transactions": []
     },
-    "other_registered_chains": "adapter/direct coverage only; no live transaction validation claimed",
-    "strict_regression_chain_id": "band-adb5b0ae1bc9",
-    "diagnostic_gate_tests_passed": 6,
-    "diagnostic_gate_read_policy": "latest-non-final, explicitly enabled",
-    "strict_policy_restored": true,
-    "temporary_regression_chains_disabled": true
+    "exact_transfer_proof": {
+      "transaction_hash": "0xe651fa06490d0c07f2f686ea96d33b8c2a3648ff6a292cff2a776d9de01539ef",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3,
+      "triggered_transactions": []
+    },
+    "matching_claim": {
+      "transaction_hash": "0x661ee828e228b25f74a1af53b1b240b9b2cbbe02031a70b92a32e14de26dd8d0",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3,
+      "triggered_transactions": []
+    },
+    "mismatching_claim": {
+      "transaction_hash": "0xb11729e4f4d133230560f18bc4b528ab6d61b4ca96183bae2a70e88d4d32657d",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3,
+      "triggered_transactions": []
+    },
+    "outsider_registration_rejected": {
+      "transaction_hash": "0xc48d902c5205616af733a6efd405fe994d3dd9dc1fdc6bcadb7dcc043b525742",
+      "status": "FINALIZED",
+      "execution_result": "ERROR",
+      "agree_votes": 3,
+      "triggered_transactions": []
+    },
+    "canonical_proof_restoration_parent": {
+      "transaction_hash": "0x1c088d7b10e6d1499e6479a6ab949d8d0378330872cb5a50444fae0da032f13f",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3,
+      "triggered_transactions": [
+        "0x4850c5798e66228b33694c46268c3410f362c243cbb845803a19a0bc162b9a3e"
+      ]
+    },
+    "canonical_proof_restoration_child": {
+      "transaction_hash": "0x4850c5798e66228b33694c46268c3410f362c243cbb845803a19a0bc162b9a3e",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 5,
+      "triggered_transactions": []
+    },
+    "recovered_publication_parent": {
+      "transaction_hash": "0xc6370da153708a348b6926350dd8416adc412aa10a0b6efeadd7953b896981b7",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 5,
+      "triggered_transactions": [
+        "0x8c0c2f02a0a57aa059f6c9a8a39b22ebd8ee006e4e28681f67a7a11105aa7e08"
+      ]
+    },
+    "recovered_publication_child": {
+      "transaction_hash": "0x8c0c2f02a0a57aa059f6c9a8a39b22ebd8ee006e4e28681f67a7a11105aa7e08",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 5,
+      "triggered_transactions": []
+    },
+    "finalized_delivery_parent": {
+      "transaction_hash": "0x48f6e9a9271f53817434125b7c0087f2c1ce436b6091e2bbc9dfcd4e8b262d9c",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 5,
+      "triggered_transactions": [
+        "0x8f72ad139df964aedb1421190e7a6bb494e66ee3f210d2df7a4b7053a72fe17b"
+      ]
+    },
+    "finalized_delivery_child": {
+      "transaction_hash": "0x8f72ad139df964aedb1421190e7a6bb494e66ee3f210d2df7a4b7053a72fe17b",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 4,
+      "triggered_transactions": []
+    },
+    "gate_settlement": {
+      "transaction_hash": "0x5970cc3397e4d918d6f8e0b2596cc00d32dd2507fa75429af0dd0acfc42dd393",
+      "status": "FINALIZED",
+      "execution_result": "SUCCESS",
+      "agree_votes": 3,
+      "triggered_transactions": []
+    },
+    "same_condition_replay_rejected": {
+      "transaction_hash": "0x96e35dc39d7640d8c9322860e2765a337198d1b2b6a577a61f412644785d3fc3",
+      "status": "FINALIZED",
+      "execution_result": "ERROR",
+      "agree_votes": 3,
+      "triggered_transactions": []
+    },
+    "other_condition_replay_rejected": {
+      "transaction_hash": "0x07c07063054838582c45337a68147588ad41850d63ed9b2f1149a9fd350d5476",
+      "status": "FINALIZED",
+      "execution_result": "ERROR",
+      "agree_votes": 5,
+      "triggered_transactions": []
+    }
   },
+  "chain_configuration": {
+    "chains": [
+      {
+        "chain_id": "1",
+        "enabled": true,
+        "family": "evm",
+        "min_confirmations": 12,
+        "name": "Ethereum Mainnet",
+        "quorum": 2,
+        "source_count": 5
+      },
+      {
+        "chain_id": "11155111",
+        "enabled": true,
+        "family": "evm",
+        "min_confirmations": 6,
+        "name": "Ethereum Sepolia",
+        "quorum": 2,
+        "source_count": 2
+      },
+      {
+        "chain_id": "8453",
+        "enabled": true,
+        "family": "evm",
+        "min_confirmations": 60,
+        "name": "Base",
+        "quorum": 2,
+        "source_count": 3
+      },
+      {
+        "chain_id": "42161",
+        "enabled": true,
+        "family": "evm",
+        "min_confirmations": 480,
+        "name": "Arbitrum One",
+        "quorum": 2,
+        "source_count": 3
+      },
+      {
+        "chain_id": "10",
+        "enabled": true,
+        "family": "evm",
+        "min_confirmations": 60,
+        "name": "OP Mainnet",
+        "quorum": 2,
+        "source_count": 4
+      },
+      {
+        "chain_id": "137",
+        "enabled": true,
+        "family": "evm",
+        "min_confirmations": 128,
+        "name": "Polygon PoS",
+        "quorum": 2,
+        "source_count": 2
+      },
+      {
+        "chain_id": "solana-mainnet",
+        "enabled": true,
+        "family": "solana",
+        "min_confirmations": 32,
+        "name": "Solana Mainnet Beta",
+        "quorum": 2,
+        "source_count": 2
+      },
+      {
+        "chain_id": "band-e99421054d6a",
+        "enabled": false,
+        "family": "evm",
+        "min_confirmations": 1,
+        "name": "Threshold regression",
+        "quorum": 2,
+        "source_count": 5
+      },
+      {
+        "chain_id": "refresh-8feb0234a5ac",
+        "enabled": false,
+        "family": "evm",
+        "min_confirmations": 12,
+        "name": "Refresh lifecycle",
+        "quorum": 2,
+        "source_count": 5
+      }
+    ],
+    "count": 9
+  },
+  "network": "studionet",
+  "rpc_url": "https://studio.genlayer.com/api",
+  "chain_id": 61999,
+  "runner": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
+  "contract_source_commit": "570c91226024d48a1c9d58324ea16b5449ad0d32",
   "ethereum_fixture": {
     "chain_id": "1",
     "transaction_hash": "0x2bb8f36504a329b8d8eb4031a895aa952e1007c24843a531d3bf29093872f86a",
@@ -95,78 +297,26 @@
     "recipient": "0x09b6b873f9a7e0f4dcb2f4aadb6be39912aa1b30",
     "amount_base_units": "100000000"
   },
-  "evidence": {
-    "ethereum_verification": {
-      "transaction_hash": "0x7fec8853e20a060ed9be9ade02b3c628d90872685ff6b58710ff5a23491673f4",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 3
-    },
-    "exact_transfer_proof": {
-      "transaction_hash": "0x42696b9250faa7e0710c743dc146f19c43f483e9cf5ad7af599d4e149b7637cc",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 3
-    },
-    "matching_claim": {
-      "transaction_hash": "0x3ca180b39412688c27700a18162bde158cfe4f3dc94350bd8cd49eed077c1f28",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 3
-    },
-    "mismatching_claim": {
-      "transaction_hash": "0x285c9c8a74d0b0367a2194182c01fe16a22c8c2895e2969374e35c47dba95609",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 3
-    },
-    "diagnostic_gate_settlement": {
-      "transaction_hash": "0x70569a014db18b53021b423d097589723c79a3d626c234cb24ba9fc16d0c92a3",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 4
-    },
-    "diagnostic_gate_replay_rejection": {
-      "transaction_hash": "0x40df3e3933f2d1050ba2aea5130ac643bcdb1c6690808fef965d6c5f1cd7aecc",
-      "status": "FINALIZED",
-      "execution_result": "ERROR",
-      "agree_votes": 4
-    },
-    "finalized_read_timeout": {
-      "transaction_hash": "0x07220da88c445f081968b4bd1eefaa76b4c18c11676af0e00d578ac62bf3f74b",
-      "status": "FINALIZED",
-      "execution_result": "ERROR",
-      "agree_votes": 0
-    },
-    "strict_band_proof": {
-      "transaction_hash": "0x53f60b973f95ea15b4df6222921ecc41b63bd2ee087f39983217fbef3d9a5651",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 3
-    },
-    "strict_policy_rejection": {
-      "transaction_hash": "0x1437cd783ef35ba40b07cd3808783c72d773226c7f75921e9d3887b654b6dfe8",
-      "status": "FINALIZED",
-      "execution_result": "ERROR",
-      "agree_votes": 3
-    },
-    "strict_policy_permissive_settlement": {
-      "transaction_hash": "0xfb43266c7858746445c7bb66c34ae90a5e5a34736c95f32034737f6661c36e70",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 4
-    },
-    "strict_policy_restored": {
-      "transaction_hash": "0x4dac1c8cf42e6acffdb0963a3d03fffba9ea2accbff3223f40c6f7b80a9f2eb2",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 4
-    },
-    "strict_regression_chain_disabled": {
-      "transaction_hash": "0x2b510eefe73cca156b121e8c6cdd62f6bb7821fdc8fb1e48c71238269acf323c",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "agree_votes": 3
+  "superseded_manifest": "studionet-2026-10-10.superseded.json",
+  "validation": {
+    "direct_tests_passed": 592,
+    "direct_verifier_and_transport_tests_passed": 576,
+    "direct_gate_tests_passed": 16,
+    "direct_sdk_release": "v0.2.16",
+    "both_contracts_lint_and_typecheck": "passed",
+    "live_verifier_tests_passed": 24,
+    "live_gate_tests_passed": 10,
+    "live_run_note": "33 passed and one polling transport failure in the full run; failed lifecycle passed in a filtered run using a fresh gate with identical source. The interrupted publication and actual child were recovered as FINALIZED/SUCCESS without resubmission.",
+    "gate_lifecycle_deployment": "0x44C72a8dE5E019C0D48E2a44281c49c52Ff64178",
+    "other_nine_gate_cases_deployment": "0x6E4543550e06B5626b1dD8481918a3F62f8dd122",
+    "positive_evidence_policy": "authenticated finalized-message delivery; current-state read is a veto only",
+    "strict_policy_restored": true,
+    "temporary_regression_chains_disabled": true,
+    "other_registered_chains": "adapter/direct coverage only; no live transaction validation claimed",
+    "ci": {
+      "implementation_commit": "570c91226024d48a1c9d58324ea16b5449ad0d32",
+      "result": "success",
+      "url": "https://github.com/dotmantissa/cross-chain-event-verifier/actions/runs/38131490592"
     }
   }
 }
