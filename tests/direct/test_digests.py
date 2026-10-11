@@ -1,19 +1,7 @@
-"""The two fact digests.
+"""Identity and settlement commitments bind independent normalized facts.
 
-The design rests on a distinction between two halves of a transaction that have
-different lifetimes:
-
-  identity   is signed by the sender and fixed the moment the transaction is
-             broadcast. Two honest sources cannot disagree about it, so it is
-             compared exactly, always.
-  settlement only exists once the transaction is mined, and a source that is
-             mid-reindex or running against a pruned backend may not have it
-             yet. It is compared exactly, but only once both sides agree the
-             transaction is mined.
-
-Splitting them is what lets a pending-versus-mined race between the leader and
-a validator reach consensus without ever weakening the guarantee on a
-transaction both sides already see as settled.
+Both commitments bind consensus exactly. Neither delimiter-containing program
+text nor pending/mined state changes can skip settlement integrity checks.
 """
 
 from conftest import RECIPIENT, SENDER, USDT, erc20_transfer_log
@@ -53,7 +41,7 @@ def test_identity_ignores_everything_that_drifts(mod):
 
 def test_identity_ignores_settlement(mod):
     """A pending reading and a mined reading of the same transaction share an
-    identity. This is the property that makes the race tolerable."""
+    identity. Settlement and mined-state decisions still match independently."""
     assert mod.identity_digest(facts()) == mod.identity_digest(
         facts(status="pending", block_number=-1, tx_index=-1, logs=[])
     )
@@ -203,3 +191,16 @@ def test_log_fields_cannot_be_smuggled_across_the_separator(mod):
     must not be able to impersonate a different field layout."""
     sneaky = facts(**{"from": SENDER, "to": f"{USDT}\n0"})
     assert mod.identity_digest(sneaky) != mod.identity_digest(facts())
+
+
+def test_program_log_boundaries_cannot_alias_in_digest(mod):
+    def log(text):return {'address':'','topics':[],'data':text}
+    first=facts(value_unit='lamports',logs=[log('a\n##b'),log('c')])
+    second=facts(value_unit='lamports',logs=[log('a'),log('b\n##c')])
+    assert mod.settlement_digest(first)!=mod.settlement_digest(second)
+
+
+def test_program_log_case_is_preserved(mod):
+    first=facts(value_unit='lamports',logs=[{'address':'','topics':[],'data':'Program ABC'}])
+    second=facts(value_unit='lamports',logs=[{'address':'','topics':[],'data':'Program abc'}])
+    assert mod.settlement_digest(first)!=mod.settlement_digest(second)

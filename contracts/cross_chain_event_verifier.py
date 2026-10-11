@@ -714,21 +714,18 @@ def identity_digest(facts: dict) -> str:
 
 
 def settlement_digest(facts: dict) -> str:
-    logs = facts.get("logs") or []
-    parts = [
-        "v1",
-        str(facts.get("status", "")),
-        str(facts.get("block_number", -1)),
-        str(facts.get("tx_index", -1)),
-        str(facts.get("created_contract", "")),
-        str(len(logs)),
-    ]
-    for log in logs:
-        topics = ",".join(str(t).lower() for t in (log.get("topics") or []) if t)
-        parts.append(
-            f"{_norm_addr(log.get('address'))}#{topics}#{str(log.get('data') or '').lower()}"
-        )
-    return _keccak_text("\n".join(parts))
+    # Length-delimited JSON prevents untrusted program-log newlines/separators
+    # from aliasing another log vector. Preserve case-sensitive Solana text.
+    solana = facts.get("value_unit") == "lamports"
+    logs = [{"address": _norm_addr(log.get("address")),
+             "topics": [str(t).lower() for t in (log.get("topics") or []) if t],
+             "data": str(log.get("data") or "") if solana else str(log.get("data") or "").lower()}
+            for log in (facts.get("logs") or [])]
+    canonical = json.dumps({"version": 2, "status": facts.get("status", ""),
+        "block_number": facts.get("block_number", -1), "tx_index": facts.get("tx_index", -1),
+        "created_contract": facts.get("created_contract", ""), "logs": logs},
+        sort_keys=True, separators=(",", ":"))
+    return _keccak_text(canonical)
 
 
 # ---------------------------------------------------------------------------
