@@ -94,3 +94,32 @@ def test_rpc_execution_errors_are_never_retried():
     with pytest.raises(GenLayerError, match='execution failed'):
         client.provider.make_request(method='gen_call', params=[])
     assert len(attempts) == 1
+
+
+@pytest.mark.parametrize('method', ['gen_call','eth_sendRawTransaction'])
+def test_actual_sdk_transport_always_sets_timeout(monkeypatch,method):
+    from scripts import transport
+    from genlayer_py.provider.provider import GenLayerProvider
+    calls=[]
+    def post(url,**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(raise_for_status=lambda:None,json=lambda:{'result':'ok'})
+    monkeypatch.setattr(transport.requests,'post',post)
+    client=transport.install_rpc_read_retries(SimpleNamespace(provider=GenLayerProvider('https://rpc.invalid')))
+    assert client.provider.make_request(method=method,params=[])['result']=='ok'
+    assert len(calls)==1 and calls[0]['timeout']==(5,30)
+
+
+def test_timed_out_write_is_never_resubmitted(monkeypatch):
+    import requests
+    from scripts import transport
+    from genlayer_py.provider.provider import GenLayerProvider
+    calls=[]
+    def post(url,**kwargs):
+        calls.append(kwargs)
+        raise requests.exceptions.ReadTimeout('server may have received this write')
+    monkeypatch.setattr(transport.requests,'post',post)
+    client=transport.install_rpc_read_retries(SimpleNamespace(provider=GenLayerProvider('https://rpc.invalid')))
+    with pytest.raises(GenLayerError,match='transport failed'):
+        client.provider.make_request(method='eth_sendRawTransaction',params=['signed payload'])
+    assert len(calls)==1

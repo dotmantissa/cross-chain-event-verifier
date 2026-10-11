@@ -15,6 +15,29 @@ from genlayer_py.abi import calldata
 from genlayer_py.contracts.utils import make_calldata_object
 from genlayer_py.exceptions import GenLayerError
 from genlayer_py.types import TransactionHashVariant
+from genlayer_py.provider.provider import GenLayerProvider
+
+RPC_TIMEOUT = (5, 30)  # bounded connect and response waits, in seconds
+
+
+def _bounded_request(provider, method, params):
+    payload = {"jsonrpc": "2.0", "id": int(time.time() * 1000),
+               "method": method, "params": params}
+    try:
+        response = requests.post(provider.url, json=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "ccev/genlayer-py"},
+            timeout=RPC_TIMEOUT)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as cause:
+        raise GenLayerError(f"RPC transport failed for {method}") from cause
+    try:
+        result = response.json()
+    except ValueError as cause:
+        raise GenLayerError(f"RPC returned malformed JSON for {method}") from cause
+    if not isinstance(result, dict):
+        raise GenLayerError(f"RPC returned malformed response for {method}")
+    provider._raise_on_error(result, method)
+    return result
 
 
 READ_RPC_METHODS = frozenset({"eth_chainId", "eth_getBalance", "eth_estimateGas",
@@ -27,7 +50,7 @@ def install_rpc_read_retries(client):
     provider = client.provider
     if getattr(provider, "_ccev_read_retries_installed", False):
         return client
-    original = provider.make_request
+    original = (lambda method, params: _bounded_request(provider, method, params)) if isinstance(provider, GenLayerProvider) else provider.make_request
 
     def request(method, params):
         for attempt in range(3):

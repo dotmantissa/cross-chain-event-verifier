@@ -51,6 +51,8 @@ def main():
     deploy.add_argument("contract", type=Path)
     deploy.add_argument("--args-json", default="[]")
     deploy.add_argument("--checkpoint", type=Path, required=True)
+    deploy.add_argument("--retry-failed", action="store_true",
+        help="Submit again only when a matching deployment finalized with failed execution")
     receipt_command = commands.add_parser("receipt")
     receipt_command.add_argument("transaction_hash")
     options = parser.parse_args()
@@ -78,7 +80,8 @@ def main():
         fingerprint = hashlib.sha256(code.encode()).hexdigest()
         checkpoint = json.loads(options.checkpoint.read_text()) if options.checkpoint.exists() else {}
         if (checkpoint.get("network") == options.network
-            and checkpoint.get("source_sha256") == fingerprint and checkpoint.get("args") == raw_args):
+            and checkpoint.get("source_sha256") == fingerprint and checkpoint.get("args") == raw_args
+            and not (options.retry_failed and checkpoint.get("execution_succeeded") is False)):
             tx_hash = checkpoint["transaction_hash"]
         else:
             tx_hash = client.deploy_contract(code=code, args=args)
