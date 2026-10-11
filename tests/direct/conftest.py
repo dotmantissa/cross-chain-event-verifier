@@ -262,6 +262,7 @@ def solana_transaction(
         "transactionIndex": 3,
         "version": 0,
         "meta": {
+            "loadedAddresses": {"writable": [], "readonly": []},
             "err": err,
             "fee": 5000,
             "status": {"Ok": None} if err is None else {"Err": err},

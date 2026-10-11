@@ -545,15 +545,13 @@ def test_an_external_failure_is_also_isolated(direct_vm, mod):
     assert "[EXTERNAL]" in out["note"]
 
 
-def test_a_transaction_level_rejection_is_not_isolated(direct_vm, mod):
-    """An EXPECTED error is a statement about the transaction itself, so it has
-    to propagate rather than be swallowed as one source's problem."""
+def test_one_source_cap_report_is_isolated(direct_vm, mod):
+    """A single untrusted source cannot establish a global cap violation."""
     too_many = [erc20_transfer_log(amount=i) for i in range(mod.MAX_LOGS_DIGESTED + 1)]
     mock_rpc(
         direct_vm, ALPHA, evm_batch(rpc_transaction(), rpc_receipt(logs=too_many), BLOCK + 64)
     )
-    with pytest.raises(Exception, match=r"\[EXPECTED\]"):
-        mod.observe_source(evm_source(), plan(), TX_HASH)
+    assert mod.observe_source(evm_source(), plan(), TX_HASH)["outcome"] == "error"
 
 
 def test_an_unsupported_source_kind_is_reported(direct_vm, mod):

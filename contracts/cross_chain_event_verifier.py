@@ -70,6 +70,7 @@ See ``docs/INTEGRATION.md`` for the full consumer guide.
 
 import datetime
 import json
+import re
 import typing
 from dataclasses import dataclass
 from urllib.parse import urlencode
@@ -716,7 +717,7 @@ def evaluate_assertion(logs: list, spec: dict) -> tuple[bool, list]:
 def identity_digest(facts: dict) -> str:
     # Every identity fact exposed to claim adjudication belongs to the quorum.
     canonical = json.dumps({field: facts.get(field) for field in
-        ("from", "to", "value", "selector", "nonce", "accounts", "programs")},
+        ("from", "to", "value", "selector", "nonce", "accounts", "programs", "value_known", "value_unit")},
         sort_keys=True, separators=(",", ":"))
     return _keccak_text(canonical)
 
@@ -779,8 +780,45 @@ def _http_json(method: str, url: str, body: bytes | None) -> typing.Any:
         raise gl.vm.UserError(f"{ERROR_TRANSIENT} source returned malformed JSON")
 
 
+def _source_uint(value: typing.Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed {field}")
+    parsed = _hex_to_int(value, -1)
+    if parsed < 0 or parsed >= 2**256:
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed {field}")
+    return parsed
+
+
+def _source_hex(value: typing.Any, field: str, size: int = -1) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"0x(?:[0-9a-fA-F]{2})*", value):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed {field}")
+    if size >= 0 and len(value) != 2 + size * 2:
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed {field}")
+    return value.lower()
+
+
+def _validate_evm_log(entry: dict) -> None:
+    _source_hex(entry.get("address"), "log address", 20)
+    topics = entry.get("topics")
+    if not isinstance(topics, list) or len(topics) > 4:
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed log topics")
+    for topic in topics:
+        _source_hex(topic, "log topic", 32)
+    _source_hex(entry.get("data"), "log data")
+
+
 def _evm_facts_from_rpc(tx: dict, receipt: dict | None) -> dict:
     """Normalise eth_getTransactionByHash plus eth_getTransactionReceipt."""
+    _source_hex(tx.get("from"), "sender", 20)
+    if tx.get("to") is not None:
+        _source_hex(tx.get("to"), "recipient", 20)
+    _source_uint(tx.get("value"), "value")
+    _source_uint(tx.get("nonce"), "nonce")
+    _source_hex(tx.get("input"), "input")
+    if tx.get("blockNumber") is not None:
+        _source_uint(tx.get("blockNumber"), "block number")
+        _source_uint(tx.get("transactionIndex"), "transaction index")
+        _source_hex(tx.get("blockHash"), "block hash", 32)
     block_number = _hex_to_int(tx.get("blockNumber"), default=-1)
     mined = block_number >= 0
 
@@ -792,14 +830,25 @@ def _evm_facts_from_rpc(tx: dict, receipt: dict | None) -> dict:
     if receipt:
         tx_index = _hex_to_int(receipt.get("transactionIndex"), default=-1)
         created = _norm_addr(receipt.get("contractAddress"))
+        if receipt.get("contractAddress") is not None:
+            _source_hex(receipt.get("contractAddress"), "created contract", 20)
+        raw_logs = receipt.get("logs")
+        if not isinstance(raw_logs, list):
+            raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed receipt logs")
         raw_status = receipt.get("status")
         if raw_status is None:
             # Pre-Byzantium receipts have no status field. Treat the presence of
             # a receipt as inclusion and leave success undetermined.
             status = STATUS_PENDING
         else:
-            status = STATUS_SUCCESS if _hex_to_int(raw_status, 0) == 1 else STATUS_FAILED
-        for entry in receipt.get("logs") or []:
+            status_value = _source_uint(raw_status, "receipt status")
+            if status_value not in (0, 1):
+                raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed receipt status")
+            status = STATUS_SUCCESS if status_value == 1 else STATUS_FAILED
+        for entry in raw_logs:
+            if not isinstance(entry, dict):
+                raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed receipt log")
+            _validate_evm_log(entry)
             logs.append(
                 {
                     "address": _norm_addr(entry.get("address")),
@@ -833,6 +882,8 @@ def _evm_facts_from_rpc(tx: dict, receipt: dict | None) -> dict:
         "logs": logs,
         "accounts": [],
         "programs": [],
+        "value_known": True,
+        "value_unit": "wei",
     }
 
 
@@ -865,8 +916,9 @@ def _validate_evm_response(tx: dict, receipt: typing.Any, tx_hash: str) -> None:
             raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed receipt")
         if str(receipt.get("transactionHash", "")).lower() != tx_hash.lower():
             raise gl.vm.UserError(f"{ERROR_EXTERNAL} receipt hash mismatch")
+        _source_hex(receipt.get("blockHash"), "receipt block hash", 32)
         for field in ("blockNumber", "transactionIndex"):
-            if _hex_to_int(tx.get(field)) != _hex_to_int(receipt.get(field)):
+            if _source_uint(tx.get(field), field) != _source_uint(receipt.get(field), field):
                 raise gl.vm.UserError(f"{ERROR_EXTERNAL} receipt inclusion mismatch")
         if tx.get("blockHash") != receipt.get("blockHash"):
             raise gl.vm.UserError(f"{ERROR_EXTERNAL} receipt block hash mismatch")
@@ -909,7 +961,7 @@ def fetch_evm_jsonrpc(source: dict, plan: dict, tx_hash: str) -> dict:
                 f"{ERROR_EXTERNAL} source serves chain {reported}, expected {expected_chain}"
             )
 
-    head = _hex_to_int(by_id.get(4), default=-1)
+    head = _source_uint(by_id.get(4), "chain head")
     tx = by_id.get(2)
     if tx is None and by_id.get(3) is None:
         return {"outcome": OUTCOME_ABSENT, "note": "no transaction", "head": head}
@@ -987,6 +1039,10 @@ def fetch_blockscout_v2(source: dict, plan: dict, tx_hash: str) -> dict:
                     raise gl.vm.UserError(f"{ERROR_EXTERNAL} invalid blockscout log index")
                 address_field = entry.get("address")
                 address = address_field.get("hash") if isinstance(address_field, dict) else address_field
+                normalized_log = {"address": address,
+                    "topics": [t for t in (entry.get("topics") or []) if t is not None],
+                    "data": entry.get("data")}
+                _validate_evm_log(normalized_log)
                 indexed_logs.append((index, {
                     "address": _norm_addr(address),
                     "topics": [str(t).lower() for t in (entry.get("topics") or []) if t],
@@ -1012,6 +1068,16 @@ def fetch_blockscout_v2(source: dict, plan: dict, tx_hash: str) -> dict:
     from_field = detail.get("from") or {}
     to_field = detail.get("to") or {}
     created_field = detail.get("created_contract") or {}
+    sender = from_field.get("hash") if isinstance(from_field, dict) else from_field
+    recipient = to_field.get("hash") if isinstance(to_field, dict) else to_field
+    _source_hex(sender, "sender", 20)
+    if recipient:
+        _source_hex(recipient, "recipient", 20)
+    _source_uint(detail.get("value"), "value")
+    _source_uint(detail.get("nonce"), "nonce")
+    _source_hex(detail.get("raw_input"), "input")
+    if block_number >= 0:
+        _source_uint(detail.get("position"), "transaction index")
     facts = {
         "status": status,
         "from": _norm_addr(
@@ -1031,6 +1097,8 @@ def fetch_blockscout_v2(source: dict, plan: dict, tx_hash: str) -> dict:
         "logs": logs,
         "accounts": [],
         "programs": [],
+        "value_known": True,
+        "value_unit": "wei",
     }
     head = block_number + confirmations - 1 if block_number >= 0 and confirmations > 0 else -1
     return {
@@ -1145,27 +1213,48 @@ def fetch_solana_jsonrpc(source: dict, plan: dict, tx_hash: str) -> dict:
     signatures = inner.get("signatures")
     if not isinstance(signatures, list) or not signatures or signatures[0] != tx_hash:
         raise gl.vm.UserError(f"{ERROR_EXTERNAL} solana signature mismatch")
-    message = inner.get("message") or {}
-    account_keys = [str(k) for k in (message.get("accountKeys") or [])]
-
+    message = inner["message"]
+    keys = message.get("accountKeys")
+    if not isinstance(keys, list) or not keys or any(not isinstance(k, str) for k in keys):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana accounts")
+    loaded = meta.get("loadedAddresses")
+    if loaded is None and (tx.get("version") == 0 or message.get("addressTableLookups")):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} missing solana loaded addresses")
+    account_keys = list(keys)
+    if loaded is not None:
+        if not isinstance(loaded, dict):
+            raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana loaded addresses")
+        for kind in ("writable", "readonly"):
+            values = loaded.get(kind)
+            if not isinstance(values, list) or any(not isinstance(k, str) for k in values):
+                raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana loaded addresses")
+            account_keys.extend(values)
+    if len(account_keys) > 256 or any(not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", k) for k in account_keys):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana account address")
+    instructions = message.get("instructions")
+    if not isinstance(instructions, list):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana instructions")
+    instructions = list(instructions)
+    for group in meta.get("innerInstructions") or []:
+        if not isinstance(group, dict) or not isinstance(group.get("instructions"), list):
+            raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana inner instructions")
+        instructions.extend(group["instructions"])
     programs: list[str] = []
-    for instruction in message.get("instructions") or []:
+    for instruction in instructions:
         if not isinstance(instruction, dict):
-            continue
-        index = _hex_to_int(instruction.get("programIdIndex"), default=-1)
-        if 0 <= index < len(account_keys):
-            program = account_keys[index]
-            if program not in programs:
-                programs.append(program)
-
-    logs: list[dict] = []
-    for line in meta.get("logMessages") or []:
-        logs.append({"address": "", "topics": [], "data": str(line)})
+            raise gl.vm.UserError(f"{ERROR_EXTERNAL} malformed solana instruction")
+        index = _source_uint(instruction.get("programIdIndex"), "program index")
+        if index >= len(account_keys):
+            raise gl.vm.UserError(f"{ERROR_EXTERNAL} invalid solana program index")
+        program = account_keys[index]
+        if program not in programs:
+            programs.append(program)
+    raw_logs = meta.get("logMessages")
+    if not isinstance(raw_logs, list) or any(not isinstance(line, str) for line in raw_logs):
+        raise gl.vm.UserError(f"{ERROR_EXTERNAL} missing or malformed solana log messages")
+    logs = [{"address": "", "topics": [], "data": line} for line in raw_logs]
     if len(logs) > MAX_LOGS_DIGESTED:
-        raise gl.vm.UserError(
-            f"{ERROR_EXPECTED} transaction has {len(logs)} log messages, above the "
-            f"{MAX_LOGS_DIGESTED} cap"
-        )
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} transaction exceeds log-message cap")
 
     facts = {
         "status": STATUS_FAILED if meta.get("err") is not None else STATUS_SUCCESS,
@@ -1180,6 +1269,8 @@ def fetch_solana_jsonrpc(source: dict, plan: dict, tx_hash: str) -> dict:
         "logs": logs,
         "accounts": account_keys,
         "programs": programs,
+        "value_known": False,
+        "value_unit": "lamports",
     }
     confirmations = 0
     if slot >= 0 and head >= slot:
@@ -1220,17 +1311,15 @@ def observe_source(source: dict, plan: dict, tx_hash: str) -> dict:
             }
     except gl.vm.UserError as err:
         message = err.message if hasattr(err, "message") else str(err)
-        if message.startswith(ERROR_EXPECTED):
-            # A cap breach is a property of the transaction itself, not of this
-            # source, so it has to stop the whole verification rather than be
-            # recorded as one source having a bad day.
-            raise
         return {
             "label": label,
             "kind": kind,
             "outcome": OUTCOME_ERROR,
             "note": _clip(message, 120),
         }
+    except (ValueError, TypeError, AttributeError, KeyError, IndexError) as err:
+        return {"label": label, "kind": kind, "outcome": OUTCOME_ERROR,
+                "note": f"{ERROR_EXTERNAL} malformed source payload: {type(err).__name__}"}
     observation["label"] = label
     observation["kind"] = kind
     return observation
@@ -1427,6 +1516,8 @@ def aggregate(observations: list, plan: dict) -> dict:
             "from": facts["from"],
             "to": facts["to"],
             "value": facts["value"],
+            "value_known": facts.get("value_known", True),
+            "value_unit": facts.get("value_unit", "wei"),
             "nonce": facts["nonce"],
             "block_number": facts["block_number"],
             "tx_index": facts["tx_index"],
@@ -1491,7 +1582,8 @@ def render_ground_truth(result: dict, decoded: list) -> str:
         f"block_number: {result['block_number']}",
         f"sender: {result['from'] or '(none)'}",
         f"recipient: {result['to'] or '(none, contract creation or program call)'}",
-        f"native_value_wei: {result['value']}",
+        (f"native_value_wei: {result['value']}" if result.get("value_known", True)
+         else "native_value_lamports: unknown (SOL/SPL transfers are not decoded)"),
         f"method_selector: {result['selector'] or '(none, plain transfer)'}",
         f"created_contract: {result['created_contract'] or '(none)'}",
         f"log_count: {result['log_count']}",
@@ -1499,8 +1591,12 @@ def render_ground_truth(result: dict, decoded: list) -> str:
     ]
     if result.get("accounts"):
         lines.append("accounts: " + ", ".join(result["accounts"][:12]))
+        if len(result["accounts"]) > 12:
+            lines.append("accounts: summary truncated; omitted accounts cannot establish absence")
     if result.get("programs"):
         lines.append("programs: " + ", ".join(result["programs"][:8]))
+        if len(result["programs"]) > 8:
+            lines.append("programs: summary truncated; omitted programs cannot establish absence")
 
     if decoded:
         lines.append("decoded_events:")
@@ -1621,6 +1717,9 @@ def run_pipeline(plan: dict, tx_hash: str, claim: str, assertion: str) -> dict:
     result = gather(plan, tx_hash)
     result["chain_id"] = plan["chain_id"]
     result["tx_hash"] = tx_hash
+    if plan.get("family") == FAMILY_SOLANA:
+        result["value_known"] = False
+        result["value_unit"] = "lamports"
 
     logs = result.pop("logs", [])
     decoder_index = _build_decoder_index()
@@ -1708,7 +1807,7 @@ def results_agree(leader: dict, validator: dict, plan: dict) -> bool:
         "chain_id", "tx_hash", "claim", "agreement", "exists", "mined",
         "confirmed", "status", "finality", "near_threshold",
         "settlement_corroborated", "identity_digest", "settlement_digest",
-        "from", "to", "value", "nonce", "selector", "accounts", "programs",
+        "from", "to", "value", "value_known", "value_unit", "nonce", "selector", "accounts", "programs",
         "block_number", "tx_index", "created_contract", "log_count",
         "decoded_events", "decoded_truncated", "sources_queried",
         "sources_positive", "sources_agreeing", "sources_settlement_agreeing",
@@ -1815,6 +1914,10 @@ class TxRecord:
     epoch: u256
     sources_settlement_agreeing: u256
     decoded_truncated: bool
+    value_known: bool
+    value_unit: str
+    accounts: str
+    programs: str
 
 
 @allow_storage
@@ -2193,6 +2296,10 @@ class CrossChainEventVerifier(gl.Contract):
             epoch=epoch,
             sources_settlement_agreeing=u256(int(result.get("sources_settlement_agreeing", 0))),
             decoded_truncated=bool(result.get("decoded_truncated", False)),
+            value_known=bool(result.get("value_known", True)),
+            value_unit=str(result.get("value_unit", "wei")),
+            accounts=json.dumps(result.get("accounts", [])),
+            programs=json.dumps(result.get("programs", [])),
         )
         self.tx_records[key] = record
         self._bump("verifications")
@@ -2229,7 +2336,12 @@ class CrossChainEventVerifier(gl.Contract):
             "agreement": record.agreement,
             "from": record.from_address,
             "to": record.to_address,
-            "value_wei": str(int(record.value_wei)),
+            "value_wei": str(int(record.value_wei)) if record.value_known and record.value_unit == "wei" else None,
+            "native_value": str(int(record.value_wei)) if record.value_known else None,
+            "value_known": bool(record.value_known),
+            "value_unit": record.value_unit,
+            "accounts": json.loads(record.accounts),
+            "programs": json.loads(record.programs),
             "nonce": int(record.nonce),
             "block_number": int(record.block_number),
             "tx_index": int(record.tx_index),
