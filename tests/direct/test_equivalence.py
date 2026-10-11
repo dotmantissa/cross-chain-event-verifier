@@ -6,19 +6,9 @@ validator performs the same pipeline from scratch and compares its own verdict
 with the leader's. The leader's answer is never an input to the validator's
 work, so the two are independent evidence rather than a format check.
 
-The comparison is deliberately asymmetric:
-
-  must match exactly   existence, transaction identity, and once both sides see
-                       the transaction mined, settlement and execution status
-  must match, with a   the binary confirmed verdict, which gets a hysteresis
-  hysteresis band      band around the threshold so a boundary reading does not
-                       fail consensus
-  must match exactly   the claim verdict and the assertion outcome
-  never compared       confirmation counts, gas, explorer labels, timestamps
-
-Being strict where strictness is a security property and tolerant where it
-would only produce flaky consensus is the whole design. Both halves are tested
-here: the tolerant cases have to pass, and the strict cases have to fail.
+Authorization, identity, settlement and supported facts match exactly.
+Confirmation depth may drift within the configured limit only while every
+consumer decision remains unchanged. Model prose is explanatory.
 """
 
 import json
@@ -156,16 +146,16 @@ def test_absence_on_both_sides_agrees(mod):
 # ---------------------------------------------------------------------------
 
 
-def test_confirmation_depth_alone_never_breaks_consensus(mod):
+def test_confirmation_depth_drift_is_bounded(mod):
     """The field that drifts most. A validator reading 40 blocks later than the
     leader sees a different number for the same transaction."""
-    assert mod.results_agree(result(confirmations=64), result(confirmations=104), plan()) is True
+    assert mod.results_agree(result(confirmations=64), result(confirmations=104), plan()) is False
 
 
-def test_a_validator_far_ahead_still_agrees(mod):
+def test_a_validator_far_ahead_disagrees(mod):
     assert (
         mod.results_agree(result(confirmations=20), result(confirmations=500000), plan())
-        is True
+        is False
     )
 
 
@@ -193,7 +183,7 @@ def test_crossing_the_threshold_between_reads_agrees(mod):
     the band these would disagree on a purely timing-driven difference."""
     leader = result(confirmed=False, finality="confirming", confirmations=11)
     validator = result(confirmed=True, finality="final", confirmations=13)
-    assert mod.results_agree(leader, validator, plan(min_confirmations=12, drift=10)) is True
+    assert mod.results_agree(leader, validator, plan(min_confirmations=12, drift=10)) is False
 
 
 def test_a_gap_too_large_for_drift_fails(mod):
@@ -204,11 +194,11 @@ def test_a_gap_too_large_for_drift_fails(mod):
     assert mod.results_agree(leader, validator, plan(min_confirmations=12, drift=10)) is False
 
 
-def test_the_band_edge_is_inclusive(mod):
-    """Exactly at the edge of the tolerance is still tolerated."""
+def test_threshold_change_at_band_edge_disagrees(mod):
+    """A changed authorization is rejected even at the drift boundary."""
     leader = result(confirmed=False, finality="confirming", confirmations=2)
     validator = result(confirmed=True, finality="final", confirmations=12)
-    assert mod.results_agree(leader, validator, plan(min_confirmations=12, drift=10)) is True
+    assert mod.results_agree(leader, validator, plan(min_confirmations=12, drift=10)) is False
 
 
 def test_one_block_past_the_band_edge_fails(mod):
@@ -230,13 +220,13 @@ def test_zero_drift_tolerance_makes_the_verdict_exact(mod):
 # ---------------------------------------------------------------------------
 
 
-def test_a_transaction_mined_between_the_two_reads_agrees(mod):
+def test_mined_state_change_requires_new_consensus(mod):
     """The leader saw it pending, the validator saw it land one block later.
     The identity digest is shared because identity excludes settlement, which
     is exactly why this case is survivable."""
     leader = result(mined=False, confirmed=False, status="pending", confirmations=0, settlement_digest="")
     validator = result(mined=True, confirmed=False, status="success", confirmations=1)
-    assert mod.results_agree(leader, validator, plan(drift=10)) is True
+    assert mod.results_agree(leader, validator, plan(drift=10)) is False
 
 
 def test_pending_against_deeply_mined_fails(mod):
@@ -247,12 +237,12 @@ def test_pending_against_deeply_mined_fails(mod):
     assert mod.results_agree(leader, validator, plan(drift=10)) is False
 
 
-def test_settlement_is_not_compared_while_one_side_is_pending(mod):
+def test_pending_state_cannot_skip_settlement_binding(mod):
     """A pending reading has no settlement to compare, so requiring a match
     would fail every legitimate race."""
     leader = result(mined=False, confirmed=False, status="pending", confirmations=0, settlement_digest="")
     validator = result(mined=True, confirmed=False, status="success", confirmations=2, settlement_digest="0x" + "ff" * 32)
-    assert mod.results_agree(leader, validator, plan(drift=10)) is True
+    assert mod.results_agree(leader, validator, plan(drift=10)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +429,7 @@ def test_validator_agrees_when_the_chain_has_advanced(direct_vm, verifier, at_ti
     verifier.verify_transaction(TEST_CHAIN, TX_HASH)
 
     direct_vm.clear_mocks()
-    mock_all_agree(direct_vm, head=BLOCK + 2000)
+    mock_all_agree(direct_vm, head=BLOCK + 70)
 
     assert direct_vm.run_validator() is True
 

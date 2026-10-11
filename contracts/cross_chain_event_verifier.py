@@ -714,16 +714,10 @@ def evaluate_assertion(logs: list, spec: dict) -> tuple[bool, list]:
 
 
 def identity_digest(facts: dict) -> str:
-    canonical = "\n".join(
-        [
-            "v1",
-            str(facts.get("from", "")),
-            str(facts.get("to", "")),
-            str(facts.get("value", "0")),
-            str(facts.get("selector", "")),
-            str(facts.get("nonce", -1)),
-        ]
-    )
+    # Every identity fact exposed to claim adjudication belongs to the quorum.
+    canonical = json.dumps({field: facts.get(field) for field in
+        ("from", "to", "value", "selector", "nonce", "accounts", "programs")},
+        sort_keys=True, separators=(",", ":"))
     return _keccak_text(canonical)
 
 
@@ -1684,114 +1678,53 @@ def run_pipeline(plan: dict, tx_hash: str, claim: str, assertion: str) -> dict:
 
 
 def _finality_compatible(leader: dict, validator: dict, plan: dict) -> bool:
-    """Decide whether two confirmation readings may legitimately differ.
-
-    Confirmation counts only ever grow, so a validator reading ahead of the
-    leader is expected. What must not pass is a disagreement too large to be
-    explained by the time between the two reads.
-    """
-    drift = int(plan["drift_tolerance"])
-    min_confirmations = int(plan["min_confirmations"])
-
-    if leader["mined"] != validator["mined"]:
-        # One side saw the transaction mined and the other did not. Only
-        # credible if it had just landed.
-        mined_side = leader if leader["mined"] else validator
-        if int(mined_side["confirmations"]) > drift:
+    """Only observational depth may drift; authorization must match exactly."""
+    for field in ("mined", "confirmed", "finality", "near_threshold"):
+        if leader.get(field) != validator.get(field):
             return False
-
-    if leader["confirmed"] == validator["confirmed"]:
-        return True
-
-    # Exactly one side crossed the threshold. The side that has not must be
-    # inside the hysteresis band below it, otherwise the gap is not drift.
-    behind = validator if leader["confirmed"] else leader
-    return 0 <= (min_confirmations - int(behind["confirmations"])) <= drift
+    gap = abs(int(leader.get("confirmations", 0)) - int(validator.get("confirmations", 0)))
+    if gap > int(plan["drift_tolerance"]):
+        return False
+    # Claims consume depth and head as facts, so those inputs must be exact.
+    if leader.get("claim") and gap:
+        return False
+    if "head" in leader or "head" in validator:
+        head_gap = int(leader.get("head", -1)) - int(validator.get("head", -1))
+        depth_gap = int(leader.get("confirmations", 0)) - int(validator.get("confirmations", 0))
+        if bool(leader.get("mined")) and head_gap != depth_gap:
+            return False
+        if leader.get("claim") and head_gap:
+            return False
+    return True
 
 
 def results_agree(leader: dict, validator: dict, plan: dict) -> bool:
-    """The equivalence principle, in one function.
+    """Independently bind every stored fact or decision used by consumers.
 
-    Strict about what is signed or security critical, tolerant about what two
-    honest reads of the same transaction are expected to disagree on.
+    Head/depth can drift by the configured limit only without changing any
+    authorization. Model prose and confidence remain explanatory, never policy.
     """
-    # Compare returned facts as well as their digests. Otherwise a dishonest
-    # leader could keep a valid digest and change the fields consumers store.
-    for field in ("chain_id", "tx_hash", "claim", "agreement", "settlement_corroborated"):
-        if leader.get(field) != validator.get(field):
-            return False
-    if leader.get("near_threshold") != validator.get("near_threshold"):
+    exact = (
+        "chain_id", "tx_hash", "claim", "agreement", "exists", "mined",
+        "confirmed", "status", "finality", "near_threshold",
+        "settlement_corroborated", "identity_digest", "settlement_digest",
+        "from", "to", "value", "nonce", "selector", "accounts", "programs",
+        "block_number", "tx_index", "created_contract", "log_count",
+        "decoded_events", "decoded_truncated", "sources_queried",
+        "sources_positive", "sources_agreeing", "sources_settlement_agreeing",
+        "assertion", "assertion_satisfied", "assertion_log_matched", "assertion_matches",
+    )
+    if any(leader.get(field) != validator.get(field) for field in exact):
         return False
-    for field in ("from", "to", "value", "nonce", "selector", "accounts", "programs"):
-        if leader.get(field) != validator.get(field):
-            return False
-    # Impossible success flags must not bypass comparison in the early
-    # absent/disputed branches. Consumers rely directly on persisted booleans.
-    if bool(leader["confirmed"]):
-        if (
-            not bool(leader["exists"])
-            or not bool(leader["mined"])
-            or leader["status"] != STATUS_SUCCESS
-            or leader["agreement"] != AGREEMENT_STRONG
-            or not leader.get("settlement_corroborated", True)
-            or int(leader["confirmations"]) < int(plan["min_confirmations"])
-        ):
-            return False
-    for field in ("assertion", "assertion_satisfied", "assertion_log_matched", "assertion_matches"):
-        if leader.get(field) != validator.get(field):
-            return False
-    # Existence is never negotiable.
-    if bool(leader["exists"]) != bool(validator["exists"]):
+    if bool(leader.get("confirmed")) and (
+        not bool(leader.get("exists")) or not bool(leader.get("mined"))
+        or leader.get("status") != STATUS_SUCCESS
+        or leader.get("agreement") != AGREEMENT_STRONG
+        or not leader.get("settlement_corroborated", True)
+        or int(leader.get("confirmations", 0)) < int(plan["min_confirmations"])
+    ):
         return False
-
-    # A dispute between sources is itself a result both sides must reach.
-    if (leader["status"] == STATUS_DISPUTED) != (validator["status"] == STATUS_DISPUTED):
-        return False
-    if leader["status"] == STATUS_DISPUTED:
-        return _claim_fields_agree(leader, validator)
-
-    if not leader["exists"]:
-        # Both sides agree a quorum of sources has no such transaction.
-        if leader.get("assertion_satisfied") != validator.get("assertion_satisfied"):
-            return False
-        return _claim_fields_agree(leader, validator)
-
-    # Identity is signed by the sender. Two honest views cannot differ.
-    if leader["identity_digest"] != validator["identity_digest"]:
-        return False
-    if bool(leader["confirmed"]) != bool(validator["confirmed"]):
-        if not _finality_compatible(leader, validator, plan):
-            return False
-    elif not _finality_compatible(leader, validator, plan):
-        return False
-
-    both_mined = bool(leader["mined"]) and bool(validator["mined"])
-    if both_mined:
-        # Once both sides see it mined, settlement is immutable. Compare it
-        # exactly: this covers status, block, index and every log.
-        if leader["settlement_digest"] != validator["settlement_digest"]:
-            return False
-        if leader["status"] != validator["status"]:
-            return False
-        for field in ("block_number", "tx_index", "created_contract", "log_count", "decoded_events"):
-            if leader.get(field) != validator.get(field):
-                return False
-
-    # Confirmation counts, gas, labels and timestamps are intentionally not
-    # compared. They drift and carry no security meaning here.
-
-    if "assertion_satisfied" in leader or "assertion_satisfied" in validator:
-        if leader.get("assertion") != validator.get("assertion"):
-            return False
-        for field in ("assertion_log_matched", "assertion_matches"):
-            if leader.get(field) != validator.get(field):
-                return False
-        if bool(leader.get("assertion_satisfied")) != bool(
-            validator.get("assertion_satisfied")
-        ):
-            return False
-
-    return _claim_fields_agree(leader, validator)
+    return _finality_compatible(leader, validator, plan) and _claim_fields_agree(leader, validator)
 
 
 def _claim_fields_agree(leader: dict, validator: dict) -> bool:
